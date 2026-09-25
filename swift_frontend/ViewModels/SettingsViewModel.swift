@@ -30,9 +30,8 @@ public class SettingsViewModel: ObservableObject {
                 let symbols = try await APIService.shared.getDigitSymbols()
                 self.availableSymbols = symbols
 
-                if !symbols.contains(where: { $0.symbol == self.config.symbol }),
-                   let first = symbols.first,
-                   self.config.symbol.isEmpty {
+                if let first = symbols.first,
+                   !symbols.contains(where: { $0.symbol == self.config.symbol }) {
                     self.config.symbol = first.symbol
                 }
             } catch {
