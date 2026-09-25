@@ -222,6 +222,9 @@ async def websocket_endpoint(websocket: WebSocket):
             action = data.get("action")
             if action == "ping":
                 await websocket.send_text(json.dumps({"type": "pong"}))
+            elif action == "clear_logs":
+                bot.clear_logs()
+                await websocket.send_text(json.dumps({"type": "logs_reset", "data": {}}))
             elif action == "get_status":
                 await websocket.send_text(json.dumps({"type": "status", "data": bot.get_status().dict()}))
 
