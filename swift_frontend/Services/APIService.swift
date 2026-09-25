@@ -57,6 +57,20 @@ public class APIService {
         return try JSONDecoder().decode(BotStatus.self, from: data)
     }
 
+    public func clearBotLogs() async throws {
+        guard let url = URL(string: "\(baseURL)/api/bot/logs/clear") else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            let detail = String(data: data, encoding: .utf8) ?? "Log reset failed"
+            throw NSError(domain: "ExecutionLogs", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: detail])
+        }
+    }
+
     public func getBotLogs() async throws -> [LogMessage] {
         guard let url = URL(string: "\(baseURL)/api/bot/logs") else {
             throw URLError(.badURL)

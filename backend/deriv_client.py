@@ -5,7 +5,7 @@ import ssl
 import certifi
 import requests
 import websockets
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, ROUND_UP
 from typing import Optional, Dict, Any, Callable
 from websockets.protocol import State
 
@@ -372,10 +372,11 @@ class DerivClient:
             raise Exception("Deriv proposal did not return an ask_price.")
 
         # Deriv's buy price accepts no more than two decimal places.
-        # Round UP so the maximum price is never below Deriv's quoted ask.
+        # Always round upward to two decimals so the maximum buy price is
+        # never below Deriv's quoted ask.
         buy_price_decimal = Decimal(str(ask_price_raw)).quantize(
             Decimal("0.01"),
-            rounding=ROUND_HALF_UP
+            rounding=ROUND_UP
         )
         if buy_price_decimal < Decimal("0.01"):
             raise Exception("Deriv returned an invalid proposal ask_price.")

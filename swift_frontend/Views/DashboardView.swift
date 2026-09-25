@@ -33,7 +33,6 @@ public struct DashboardView: View {
                 }
                     .padding(Theme.gutter)
             }
-            .textSelection(.enabled)
             .background(Theme.pageBackground.ignoresSafeArea())
             .navigationTitle("Dashboard")
             .navigationBarTitleDisplayModeCompat()
@@ -248,6 +247,26 @@ public struct DashboardView: View {
                     .foregroundColor(.gray)
             }
 
+            HStack(spacing: 8) {
+                Button(action: { viewModel.clearLogs() }) {
+                    Label("Clear", systemImage: "trash")
+                }
+                .buttonStyle(.bordered)
+
+                Button(action: copyAllDashboard) {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+
+                Button(action: exportLogs) {
+                    Label("Export CSV", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(.bordered)
+
+                Spacer()
+            }
+            .controlSize(.small)
+
             // Newest entries render at the top (list is reversed below), and
             // the ScrollViewReader forces the view back to that newest entry
             // whenever the log count changes — so the latest line is always
@@ -353,7 +372,8 @@ private extension DashboardView {
         panel.nameFieldStringValue = "deriv-execution-logs.csv"
         panel.allowedContentTypes = [.commaSeparatedText]
         panel.canCreateDirectories = true
-        if panel.runModal() == .OK, let url = panel.url {
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
             let header = "Timestamp,Level,Message\n"
             let rows = viewModel.logs.map {
                 "\($0.timestamp),\($0.level.csvEscaped),\($0.message.csvEscaped)"

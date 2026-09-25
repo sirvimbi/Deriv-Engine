@@ -63,6 +63,17 @@ class TradingBot:
             except Exception as e:
                 logger.debug(f"Unable to broadcast log event: {e}")
 
+    def clear_logs(self):
+        """Clear the in-memory execution log and notify connected dashboards."""
+        self.logs.clear()
+        if self.status_broadcast_callback:
+            try:
+                result = self.status_broadcast_callback("logs_reset", {})
+                if asyncio.iscoroutine(result):
+                    asyncio.create_task(result)
+            except Exception as e:
+                logger.debug(f"Unable to broadcast log reset: {e}")
+
     def update_config(self, new_config: TradingConfig):
         mode = new_config.contract_type_mode.upper()
         if mode not in ("DIGITUNDER", "DIGITOVER", "BOTH"):

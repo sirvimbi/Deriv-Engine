@@ -63,7 +63,12 @@ async def equity_broadcast_loop():
                 await client.disconnect()
                 equity_value = balance.get("balance") if isinstance(balance, dict) else None
                 if equity_value is not None:
-                    await broadcast_ws_event("account_equity", {"equity": equity_value})
+                    # Persist the latest value on the canonical bot instance so
+                    # a newly connected dashboard gets equity in its initial status.
+                    bot.account_balance = round(float(equity_value), 2)
+                    bot.account_equity = bot.account_balance
+                    await broadcast_ws_event("account_equity", {"equity": bot.account_equity, "balance": bot.account_balance})
+                    await broadcast_ws_event("status", bot.get_status().dict())
         except Exception as e:
             logger.warning(f"Equity broadcast skipped: {e}")
         await asyncio.sleep(5)
@@ -120,6 +125,11 @@ def get_bot_status():
 @app.get("/api/bot/logs", response_model=List[LogMessage])
 def get_bot_logs():
     return bot.logs
+
+@app.post("/api/bot/logs/clear")
+async def clear_bot_logs():
+    bot.clear_logs()
+    return {"status": "success", "message": "Execution logs cleared"}
 
 @app.post("/api/trade/place")
 async def place_manual_trade(req: ManualTradeRequest):
