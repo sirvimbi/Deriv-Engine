@@ -110,6 +110,13 @@ async def place_manual_trade(req: ManualTradeRequest):
         await client.disconnect()
         raise HTTPException(status_code=400, detail=f"Manual trade failed: {str(e)}")
 
+@app.get("/api/history/session")
+def get_history_session():
+    return {
+        "started_at": bot.session_start_epoch or None,
+        "active": bool(bot.session_start_epoch)
+    }
+
 @app.get("/api/history/statement")
 async def get_statement(limit: int = 50, token: str = None):
     api_token = token or bot.config.api_token
