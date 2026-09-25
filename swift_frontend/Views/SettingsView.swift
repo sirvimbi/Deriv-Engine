@@ -159,6 +159,9 @@ public struct SettingsView: View {
             dropdownRow("Loss Prediction Digit") {
                 IntegerDropdown("Loss Prediction Digit", value: $viewModel.config.loss_predict_digit, range: 0...9)
             }
+            dropdownRow("Recovery Win Target Prediction Digit") {
+                IntegerDropdown("Recovery Win Target Prediction Digit", value: $viewModel.config.recovery_win_predict_digit, range: 0...9)
+            }
             dropdownRow("Recovery Win Target") {
                 IntegerDropdown("Recovery Win Target", value: $viewModel.config.recovery_wins_required, range: 0...50)
             }
@@ -251,6 +254,7 @@ private extension SettingsView {
             "Over Trigger Digit: \(c.over_trigger_digit)",
             "Win Prediction Digit: \(c.win_predict_digit)",
             "Loss Prediction Digit: \(c.loss_predict_digit)",
+            "Recovery Win Target Prediction Digit: \(c.recovery_win_predict_digit)",
             "Recovery Win Target: \(c.recovery_wins_required)",
             "Allowed Contracts: \(c.contract_type_mode)",
             "Ticks: \(c.duration)"

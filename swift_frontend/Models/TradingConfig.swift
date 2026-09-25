@@ -15,6 +15,7 @@ public struct TradingConfig: Codable, Equatable {
     public var over_trigger_digit: Int
     public var win_predict_digit: Int
     public var loss_predict_digit: Int
+    public var recovery_win_predict_digit: Int
     public var duration: Int
     public var duration_unit: String
     public var currency: String
@@ -39,6 +40,7 @@ public struct TradingConfig: Codable, Equatable {
         over_trigger_digit: Int = 8,
         win_predict_digit: Int = 8,
         loss_predict_digit: Int = 3,
+        recovery_win_predict_digit: Int = 3,
         duration: Int = 1,
         duration_unit: String = "t",
         currency: String = "USD",
@@ -60,6 +62,7 @@ public struct TradingConfig: Codable, Equatable {
         self.over_trigger_digit = over_trigger_digit
         self.win_predict_digit = win_predict_digit
         self.loss_predict_digit = loss_predict_digit
+        self.recovery_win_predict_digit = recovery_win_predict_digit
         self.duration = duration
         self.duration_unit = duration_unit
         self.currency = currency
@@ -90,6 +93,7 @@ public struct TradingConfig: Codable, Equatable {
         over_trigger_digit = try c.decodeIfPresent(Int.self, forKey: .over_trigger_digit) ?? 8
         win_predict_digit = try c.decodeIfPresent(Int.self, forKey: .win_predict_digit) ?? 8
         loss_predict_digit = try c.decodeIfPresent(Int.self, forKey: .loss_predict_digit) ?? 3
+        recovery_win_predict_digit = try c.decodeIfPresent(Int.self, forKey: .recovery_win_predict_digit) ?? 3
         duration = try c.decodeIfPresent(Int.self, forKey: .duration) ?? 1
         duration_unit = try c.decodeIfPresent(String.self, forKey: .duration_unit) ?? "t"
         currency = try c.decodeIfPresent(String.self, forKey: .currency) ?? "USD"

@@ -23,6 +23,9 @@ public struct IntegerDropdown: View {
         .pickerStyle(.menu)
         .menuOrder(.fixed)
         .frame(minWidth: 130, maxWidth: 220)
+        .onAppear {
+            value = min(max(value, range.lowerBound), range.upperBound)
+        }
     }
 }
 
@@ -40,7 +43,10 @@ public struct DoubleDropdown: View {
     }
 
     private var values: [Double] {
-        stride(from: Double(range.lowerBound), through: Double(range.upperBound), by: step).map { $0 }
+        let count = Int((Double(range.upperBound - range.lowerBound) / step).rounded(.down))
+        return (0...count).map { index in
+            Double(range.lowerBound) + (Double(index) * step)
+        }.filter { $0 <= Double(range.upperBound) + 0.000001 }
     }
 
     public var body: some View {
@@ -53,6 +59,11 @@ public struct DoubleDropdown: View {
         .pickerStyle(.menu)
         .menuOrder(.fixed)
         .frame(minWidth: 130, maxWidth: 220)
+        .onAppear {
+            let clamped = min(max(value, Double(range.lowerBound)), Double(range.upperBound))
+            let nearest = values.min(by: { abs($0 - clamped) < abs($1 - clamped) }) ?? Double(range.lowerBound)
+            value = nearest
+        }
     }
 }
 
@@ -63,11 +74,26 @@ public struct ContractModeDropdown: View {
         self._value = value
     }
 
+    private var selection: Binding<Int> {
+        Binding(
+            get: {
+                switch value.uppercased() {
+                case "DIGITUNDER": return 0
+                case "DIGITOVER": return 2
+                default: return 1
+                }
+            },
+            set: { index in
+                value = ["DIGITUNDER", "BOTH", "DIGITOVER"][min(max(index, 0), 2)]
+            }
+        )
+    }
+
     public var body: some View {
-        Picker("Allowed Contracts", selection: $value) {
-            Text("DigitUnder").tag("DIGITUNDER")
-            Text("Both").tag("BOTH")
-            Text("DigitOver").tag("DIGITOVER")
+        Picker("Allowed Contracts", selection: selection) {
+            Text("DigitUnder").tag(0)
+            Text("Both").tag(1)
+            Text("DigitOver").tag(2)
         }
         .pickerStyle(.menu)
         .menuOrder(.fixed)
