@@ -329,8 +329,8 @@ class TradingBot:
                         if str(returned_type).upper() != str(trade_contract_type).upper():
                             self.add_log(
                                 "error",
-                                f"CONTRACT MISMATCH | requested=\{trade_contract_type} | "
-                                f"Deriv returned=\{returned_type} | contract_id=\{contract_id}. "
+                                f"CONTRACT MISMATCH | requested={trade_contract_type} | "
+                                f"Deriv returned={returned_type} | contract_id={contract_id}. "
                                 f"Stopping bot to prevent further trades."
                             )
                             await self.stop("Deriv contract type mismatch")
@@ -338,8 +338,8 @@ class TradingBot:
                             return
                         self.add_log(
                             "info",
-                            f"CONTRACT VERIFIED | id=\{contract_id} | type=\{returned_type} | "
-                            f"requested=\{trade_contract_type} | barrier=\{trade_prediction}"
+                            f"CONTRACT VERIFIED | id={contract_id} | type={returned_type} | "
+                            f"requested={trade_contract_type} | barrier={trade_prediction}"
                         )
 
                 if poc.get("is_sold"):
