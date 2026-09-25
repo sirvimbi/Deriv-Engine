@@ -3,7 +3,7 @@ import Foundation
 public class APIService {
     public static let shared = APIService()
     
-    @Published public var baseURL: String = "http://localhost:8000"
+    @Published public var baseURL: String = "http://127.0.0.1:8000"
 
     private init() {}
 
