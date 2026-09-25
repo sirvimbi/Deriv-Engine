@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 public struct ManualTradeView: View {
     @StateObject private var viewModel = ManualTradeViewModel()
@@ -12,7 +13,7 @@ public struct ManualTradeView: View {
                     settingsCard("Trade Configuration", systemImage: "slider.horizontal.3") {
                         editableRow("Symbol") {
                             NativeEditableField(text: $viewModel.symbol, placeholder: "e.g. R_100")
-                                .frame(width: 300, height: 26)
+                                .frame(minWidth: 220, maxWidth: 360, minHeight: 26)
                         }
 
                         editableRow("Contract Type") {
@@ -24,29 +25,29 @@ public struct ManualTradeView: View {
                                 Text("DIGIT MATCH").tag("DIGITMATCH")
                                 Text("DIGIT DIFFER").tag("DIGITDIFF")
                             }
-                            .frame(width: 220)
+                            .frame(minWidth: 180, maxWidth: 260)
                         }
 
                         editableRow("Stake Amount ($)") {
                             NativeNumberField(value: $viewModel.amount, placeholder: "Stake amount")
-                                .frame(width: 180, height: 26)
+                                .frame(minWidth: 140, maxWidth: 220, minHeight: 26)
                         }
 
                         if viewModel.contractType.contains("DIGIT") {
                             editableRow("Prediction Digit") {
                                 NativeIntegerField(value: $viewModel.prediction, placeholder: "0-9", range: 0...9)
-                                    .frame(width: 180, height: 26)
+                                    .frame(minWidth: 140, maxWidth: 220, minHeight: 26)
                             }
                         }
 
                         editableRow("Duration (Ticks)") {
                             NativeIntegerField(value: $viewModel.duration, placeholder: "1-10", range: 1...10)
-                                .frame(width: 180, height: 26)
+                                .frame(minWidth: 140, maxWidth: 220, minHeight: 26)
                         }
 
                         editableRow("Currency") {
                             NativeEditableField(text: $viewModel.currency, placeholder: "e.g. USD")
-                                .frame(width: 180, height: 26)
+                                .frame(minWidth: 120, maxWidth: 220, minHeight: 26)
                         }
                     }
 
@@ -88,9 +89,19 @@ public struct ManualTradeView: View {
                 .frame(maxWidth: 900, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }
-            .textSelection(.enabled)
+            // NOTE: no blanket .textSelection(.enabled) on this ScrollView —
+            // see the comment in SettingsView.swift. It was blocking keyboard
+            // input into the native fields above. Selection is applied to
+            // the individual label/preview Text views below instead.
             .background(Theme.pageBackground.ignoresSafeArea())
             .navigationTitle("Manual Trade")
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button(action: copyAllManualTrade) {
+                        Label("Copy All", systemImage: "doc.on.doc")
+                    }
+                }
+            }
         }
     }
     private var tradeSummaryRow: some View {
@@ -101,13 +112,16 @@ public struct ManualTradeView: View {
                 Text("\(viewModel.contractType) · \(viewModel.symbol)")
                     .font(.subheadline)
                     .fontWeight(.semibold)
+                    .textSelection(.enabled)
                 Text("Stake $\(String(format: "%.2f", viewModel.amount)) · \(viewModel.duration)t · \(viewModel.currency)")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                    .textSelection(.enabled)
                 if viewModel.contractType.contains("DIGIT") {
                     Text("Prediction: \(viewModel.prediction)")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .textSelection(.enabled)
                 }
             }
             Spacer(minLength: 0)
@@ -127,9 +141,33 @@ public struct ManualTradeView: View {
 
     private func editableRow<Content: View>(_ title: String, @ViewBuilder control: () -> Content) -> some View {
         HStack(alignment: .center, spacing: 16) {
-            Text(title).frame(minWidth: 180, alignment: .leading)
+            Text(title)
+                .frame(minWidth: 180, alignment: .leading)
+                .textSelection(.enabled)
             Spacer(minLength: 8)
             control()
         }
+    }
+}
+
+private extension ManualTradeView {
+    func copyAllManualTrade() {
+        var lines = [
+            "DERIV ENGINE — MANUAL TRADE",
+            "Symbol: \(viewModel.symbol)",
+            "Contract Type: \(viewModel.contractType)",
+            String(format: "Stake: $%.2f", viewModel.amount),
+            "Duration: \(viewModel.duration)t",
+            "Currency: \(viewModel.currency)"
+        ]
+        if viewModel.contractType.contains("DIGIT") {
+            lines.append("Prediction Digit: \(viewModel.prediction)")
+        }
+        if let result = viewModel.lastResult {
+            lines.append("")
+            lines.append("Last Result: \(result)")
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
     }
 }

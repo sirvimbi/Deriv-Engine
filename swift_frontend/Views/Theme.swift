@@ -167,6 +167,7 @@ public struct ErrorBanner: View {
                     .font(.footnote)
                     .fontWeight(.medium)
                     .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
                 if let retry {
                     Button(action: retry) {
                         Label("Retry", systemImage: "arrow.clockwise")

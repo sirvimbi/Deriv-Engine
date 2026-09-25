@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 public struct HistoryView: View {
     @StateObject private var viewModel = HistoryViewModel()
@@ -15,7 +16,7 @@ public struct HistoryView: View {
                 .pickerStyle(SegmentedPickerStyle())
                 .padding(.horizontal)
                 .padding(.top, 12)
-                .onChange(of: viewModel.selectedTab) { _ in
+                .onChange(of: viewModel.selectedTab) { _, _ in
                     viewModel.refreshNow()
                 }
 
@@ -29,7 +30,7 @@ public struct HistoryView: View {
                     } else if let err = viewModel.errorMessage {
                         Spacer()
                         VStack(spacing: 12) {
-                            ErrorBanner(err) { viewModel.loadHistory() }
+                            ErrorBanner(err) { viewModel.loadHistory(force: true) }
                                 .padding(.horizontal)
                         }
                         Spacer()
@@ -41,6 +42,7 @@ public struct HistoryView: View {
                                 .foregroundColor(.secondary)
                             Text("No transactions found.")
                                 .foregroundColor(.secondary)
+                                .textSelection(.enabled)
                         }
                         Spacer()
                     } else {
@@ -50,7 +52,7 @@ public struct HistoryView: View {
                                 .listRowSeparator(.hidden)
                         }
                         .listStyle(PlainListStyle())
-                        .refreshable { viewModel.loadHistory() }
+                        .refreshable { viewModel.loadHistory(force: true) }
                     }
                 }
             }
@@ -59,6 +61,14 @@ public struct HistoryView: View {
             .navigationTitle("Transactions")
             .toolbar {
                 ToolbarItemGroup(placement: toolbarPlacement) {
+                    if viewModel.isSyncing {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("Syncing")
+                    }
+                    Button(action: copyAllTransactions) {
+                        Label("Copy All", systemImage: "doc.on.doc")
+                    }
                     Button(action: { viewModel.clearSession() }) {
                         Label("Clear", systemImage: "trash")
                     }
@@ -188,3 +198,23 @@ public struct HistoryView: View {
     }
 }
 
+private extension HistoryView {
+    func copyAllTransactions() {
+        var lines: [String] = [
+            "DERIV ENGINE TRANSACTIONS — \(viewModel.selectedTab == 0 ? "STATEMENT" : "PROFIT TABLE")",
+            String(format: "Total Profit: $%.2f", viewModel.totalProfitSummary),
+            "Trades: \(viewModel.totalTradesCount)  Wins: \(viewModel.winCount)  Losses: \(viewModel.lossCount)",
+            ""
+        ]
+        for tx in viewModel.transactions {
+            let label = (tx.action ?? tx.action_type)?.capitalized ?? tx.symbol ?? "Option Trade"
+            let stake = tx.amount ?? tx.buy_price ?? 0
+            lines.append("[\(tx.formattedTime)] \(label) — Stake $\(String(format: "%.2f", stake))")
+            if let code = tx.longcode {
+                lines.append("    \(code)")
+            }
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+    }
+}

@@ -4,6 +4,8 @@ import UniformTypeIdentifiers
 
 public struct DashboardView: View {
     @StateObject private var viewModel = DashboardViewModel()
+    @State private var pulse = false
+    @State private var showExportSuccess = false
 
     public init() {}
 
@@ -44,6 +46,11 @@ public struct DashboardView: View {
                         Label("Export Logs", systemImage: "square.and.arrow.down")
                     }
                 }
+            }
+            .alert("Logs Exported", isPresented: $showExportSuccess) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Execution logs were saved to the location you chose.")
             }
         }
     }
@@ -97,8 +104,6 @@ public struct DashboardView: View {
         .shadow(color: Theme.brandStart.opacity(0.35), radius: 16, x: 0, y: 8)
     }
 
-    @State private var pulse = false
-
     private var botStatusBadge: some View {
         let running = viewModel.botStatus.is_running
         return HStack(spacing: 6) {
@@ -141,15 +146,25 @@ public struct DashboardView: View {
     private var accountEquityStrip: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("ACCOUNT EQUITY")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(0.5)
-                    .foregroundColor(.secondary)
+                HStack(spacing: 6) {
+                    Text("ACCOUNT EQUITY")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(0.5)
+                        .foregroundColor(.secondary)
+                    if viewModel.botStatus.equity != nil {
+                        Circle()
+                            .fill(Theme.profit)
+                            .frame(width: 6, height: 6)
+                            .accessibilityLabel("Live")
+                    }
+                }
                 if let equity = viewModel.botStatus.equity {
                     Text(String(format: "$%.2f", equity))
                         .font(.system(size: 24, weight: .heavy, design: .rounded))
+                        .contentTransition(.numericText())
+                        .animation(.easeInOut(duration: 0.25), value: equity)
                 } else {
-                    Text("Not reported by backend yet")
+                    Text("Awaiting balance from backend…")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.secondary)
                 }
@@ -233,6 +248,10 @@ public struct DashboardView: View {
                     .foregroundColor(.gray)
             }
 
+            // Newest entries render at the top (list is reversed below), and
+            // the ScrollViewReader forces the view back to that newest entry
+            // whenever the log count changes — so the latest line is always
+            // on screen without the user needing to scroll for it.
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 6) {
@@ -246,8 +265,8 @@ public struct DashboardView: View {
                                     .font(.system(size: 12, design: .monospaced))
                                     .foregroundColor(logColor(log.level))
                                     .fixedSize(horizontal: false, vertical: true)
-                                    .id(log.id)
                             }
+                            .id(log.id)
                         }
                     }
                     .padding(10)
@@ -257,7 +276,20 @@ public struct DashboardView: View {
                 .textSelection(.enabled)
                 .background(Color.black.opacity(0.92))
                 .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadiusMedium, style: .continuous))
+                .onChange(of: viewModel.logs.count) { _, _ in
+                    scrollToNewestLog(proxy)
+                }
+                .onAppear {
+                    scrollToNewestLog(proxy)
+                }
             }
+        }
+    }
+
+    private func scrollToNewestLog(_ proxy: ScrollViewProxy) {
+        guard let newestID = viewModel.logs.last?.id else { return }
+        withAnimation(.easeOut(duration: 0.2)) {
+            proxy.scrollTo(newestID, anchor: .top)
         }
     }
 
@@ -306,9 +338,11 @@ private extension DashboardView {
             "Stop Loss: $\(status.config.stop_loss)",
             "Max Runs: \(status.config.max_runs)",
             "Max Loss Streak: \(status.config.max_loss_streak)",
-            "",
-            "EXECUTION LOGS"
         ]
+        if let equity = status.equity {
+            lines.insert(String(format: "Account Equity: $%.2f", equity), at: 2)
+        }
+        lines.append(contentsOf: ["", "EXECUTION LOGS"])
         lines.append(contentsOf: viewModel.logs.map { "[\($0.timestamp)] [\($0.level.uppercased())] \($0.message)" })
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
@@ -326,6 +360,7 @@ private extension DashboardView {
             }.joined(separator: "\n")
             do {
                 try (header + rows + "\n").write(to: url, atomically: true, encoding: .utf8)
+                showExportSuccess = true
             } catch {
                 print("Failed to export logs: \(error.localizedDescription)")
             }

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 from typing import List, Dict, Any
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,6 +48,32 @@ async def broadcast_ws_event(event_type: str, data: Any):
 
 bot.set_broadcast_callback(broadcast_ws_event)
 
+
+async def equity_broadcast_loop():
+    """Independently polls and broadcasts the account balance so the
+    Dashboard's ACCOUNT EQUITY tile stays live in real time, regardless of
+    whether the bot itself is running or its own trading loop happens to
+    report equity. Runs for the whole lifetime of the server."""
+    while True:
+        try:
+            if bot.config.api_token and bot.config.app_id:
+                client = DerivClient(app_id=bot.config.app_id, account_type=bot.config.account_type)
+                await client.authorize(bot.config.api_token)
+                balance = await client.get_balance()
+                await client.disconnect()
+                equity_value = balance.get("balance") if isinstance(balance, dict) else None
+                if equity_value is not None:
+                    await broadcast_ws_event("account_equity", {"equity": equity_value})
+        except Exception as e:
+            logger.warning(f"Equity broadcast skipped: {e}")
+        await asyncio.sleep(5)
+
+
+@app.on_event("startup")
+async def _start_background_tasks():
+    asyncio.create_task(equity_broadcast_loop())
+
+
 @app.get("/")
 def read_root():
     return {
@@ -69,6 +96,11 @@ async def start_bot():
     if bot.is_running:
         return {"status": "already_running", "message": "Bot is already running"}
     try:
+        # Stamp a fresh session and tell every connected client to wipe its
+        # Transactions view before the bot places its first trade, so a new
+        # run never mixes in transactions from a previous session.
+        bot.session_start_epoch = int(time.time())
+        await broadcast_ws_event("history_reset", {})
         await bot.start()
         return {"status": "started", "message": "Bot started successfully"}
     except Exception as e:
@@ -105,7 +137,6 @@ async def place_manual_trade(req: ManualTradeRequest):
         )
         await client.disconnect()
         if not bot.session_start_epoch:
-            import time
             bot.session_start_epoch = int(time.time())
         await bot.status_broadcast_callback("history_refresh", {"reason": "manual_trade"})
         return {"status": "success", "contract": buy_res}

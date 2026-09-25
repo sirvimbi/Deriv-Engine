@@ -4,7 +4,12 @@ import Combine
 @MainActor
 public class HistoryViewModel: ObservableObject {
     @Published public var transactions: [Transaction] = []
+    /// Full-screen spinner — reserved for the very first load, when there is
+    /// nothing on screen yet to preserve.
     @Published public var isLoading: Bool = false
+    /// Small, non-blocking indicator for background/pushed refreshes so the
+    /// user can see data is live without the list ever disappearing.
+    @Published public var isSyncing: Bool = false
     @Published public var selectedTab: Int = 0 // 0: Statement, 1: Profit Table
     @Published public var limit: Int = 50
     @Published public var totalProfitSummary: Double = 0.0
@@ -35,18 +40,23 @@ public class HistoryViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Pushed the instant a trade settles server-side — this is what
+        // makes the list feel instantaneous. Always silent: a push should
+        // never interrupt someone reading the list.
         WebSocketManager.shared.$historyRefreshToken
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.loadHistory(force: true)
+                self?.loadHistory(force: true, silent: true)
             }
             .store(in: &cancellables)
     }
 
     private func startAutoRefresh() {
+        // Fallback safety net only, in case a push is ever missed. Always
+        // silent — the list must never flash to a spinner on its own.
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
                 guard !Task.isCancelled else { break }
                 await self?.loadHistoryAsync()
             }
@@ -54,7 +64,7 @@ public class HistoryViewModel: ObservableObject {
     }
 
     private func loadHistoryAsync() async {
-        loadHistory()
+        loadHistory(silent: true)
     }
 
     public func refreshNow() {
@@ -62,6 +72,10 @@ public class HistoryViewModel: ObservableObject {
         loadHistory(force: true)
     }
 
+    /// Wipes the list back to an empty slate. Called both when the user taps
+    /// "Clear" and automatically whenever the backend reports a fresh bot
+    /// session (bot start), so the Transactions page never mixes trades from
+    /// a previous run into the current one.
     public func clearSession() {
         suppressAutoRefresh = true
         transactions.removeAll()
@@ -72,26 +86,38 @@ public class HistoryViewModel: ObservableObject {
         errorMessage = nil
     }
 
-    public func loadHistory(force: Bool = false) {
+    /// - Parameter silent: when true, the full-screen spinner never appears —
+    ///   used for every background or pushed refresh. The blocking spinner
+    ///   only ever appears for the very first load, when there's no existing
+    ///   content on screen to protect.
+    public func loadHistory(force: Bool = false, silent: Bool = false) {
         if suppressAutoRefresh && !force { return }
         Task {
+            let shouldBlock = !silent && transactions.isEmpty
+            if shouldBlock {
+                isLoading = true
+            } else {
+                isSyncing = true
+            }
+            errorMessage = nil
             do {
                 // The history endpoints already apply the active bot session
                 // timestamp server-side. Do not perform a second session
                 // probe: older running backends can return 404 here and
                 // prevent all transaction/profit data from loading.
-                isLoading = true
-                errorMessage = nil
+                let fetched: [Transaction]
                 if selectedTab == 0 {
-                    self.transactions = try await APIService.shared.fetchStatement(limit: limit)
+                    fetched = try await APIService.shared.fetchStatement(limit: limit)
                 } else {
-                    self.transactions = try await APIService.shared.fetchProfitTable(limit: limit)
+                    fetched = try await APIService.shared.fetchProfitTable(limit: limit)
                 }
+                self.transactions = fetched
                 calculateSummary()
             } catch {
                 self.errorMessage = "Failed to fetch history: \(error.localizedDescription)"
             }
             isLoading = false
+            isSyncing = false
         }
     }
 

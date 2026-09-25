@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "DerivEngine",
     platforms: [
-        .macOS(.v13),
+        .macOS(.v14),
         .iOS(.v16)
     ],
     products: [

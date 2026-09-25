@@ -15,10 +15,23 @@ public class WebSocketManager: ObservableObject {
     private var pingTimer: Timer?
     private var wsURLString: String = "ws://127.0.0.1:8000/ws/live"
 
+    // Reconnect bookkeeping: remembers how we were told to connect so a
+    // dropped socket can silently re-establish itself instead of leaving
+    // the dashboard (equity, ticks, logs) stuck on stale data.
+    private var lastHost: String = "127.0.0.1"
+    private var lastPort: Int = 8000
+    private var userInitiatedDisconnect: Bool = false
+    private var reconnectWorkItem: DispatchWorkItem?
+
     private init() {}
 
     public func connect(host: String = "127.0.0.1", port: Int = 8000) {
-        disconnect()
+        lastHost = host
+        lastPort = port
+        userInitiatedDisconnect = false
+        reconnectWorkItem?.cancel()
+        teardownSocket()
+
         wsURLString = "ws://\(host):\(port)/ws/live"
         guard let url = URL(string: wsURLString) else { return }
 
@@ -32,11 +45,28 @@ public class WebSocketManager: ObservableObject {
     }
 
     public func disconnect() {
+        userInitiatedDisconnect = true
+        reconnectWorkItem?.cancel()
+        teardownSocket()
+    }
+
+    private func teardownSocket() {
         pingTimer?.invalidate()
         pingTimer = nil
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         isConnected = false
+    }
+
+    private func scheduleReconnect() {
+        guard !userInitiatedDisconnect else { return }
+        reconnectWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self = self, !self.userInitiatedDisconnect else { return }
+            self.connect(host: self.lastHost, port: self.lastPort)
+        }
+        reconnectWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: workItem)
     }
 
     private func startPingTimer() {
@@ -47,9 +77,13 @@ public class WebSocketManager: ObservableObject {
 
     private func sendPing() {
         let pingJSON = "{\"action\": \"ping\"}"
-        webSocketTask?.send(.string(pingJSON)) { error in
+        webSocketTask?.send(.string(pingJSON)) { [weak self] error in
             if let error = error {
                 print("WS Ping error: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self?.isConnected = false
+                    self?.scheduleReconnect()
+                }
             }
         }
     }
@@ -63,6 +97,7 @@ public class WebSocketManager: ObservableObject {
                 print("WS receive failure: \(error.localizedDescription)")
                 DispatchQueue.main.async {
                     self.isConnected = false
+                    self.scheduleReconnect()
                 }
             case .success(let message):
                 switch message {

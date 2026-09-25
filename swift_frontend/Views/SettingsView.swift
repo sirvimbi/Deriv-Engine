@@ -10,56 +10,66 @@ public struct SettingsView: View {
 
     public var body: some View {
         NavigationStack {
-            if #available(macOS 14.0, *) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        accountModeCard
-                        credentialsCard
-                        stakeCard
-                        riskCard
-                        strategyCard
-                        actionsCard
-                        
-                        if let msg = viewModel.errorMessage {
-                            ErrorBanner(msg)
-                        }
-                        
-                        if viewModel.saveSuccess {
-                            Label("Settings saved successfully!", systemImage: "checkmark.circle.fill")
-                                .foregroundColor(Theme.profit)
-                                .padding(.horizontal, 4)
-                        }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    accountModeCard
+                    credentialsCard
+                    stakeCard
+                    riskCard
+                    strategyCard
+                    actionsCard
+
+                    if let msg = viewModel.errorMessage {
+                        ErrorBanner(msg)
                     }
-                    .padding(20)
-                    .frame(maxWidth: 900, alignment: .leading)
-                    .frame(maxWidth: .infinity)
-                }
-                .textSelection(.enabled)
-                .background(Theme.pageBackground.ignoresSafeArea())
-                .navigationTitle("Bot Settings")
-                .onChange(of: viewModel.config.account_type) { _, newValue in
-                    let newIsDemo = newValue != "real"
-                    if selectedAccountIsDemo != newIsDemo { selectedAccountIsDemo = newIsDemo }
-                }
-                .onChange(of: selectedAccountIsDemo) { _, newIsDemo in
-                    DispatchQueue.main.async {
-                        if newIsDemo {
-                            viewModel.config.account_type = "demo"
-                        } else if viewModel.config.account_type != "real" {
-                            showRealAccountConfirm = true
-                        }
+
+                    if viewModel.saveSuccess {
+                        Label("Settings saved successfully!", systemImage: "checkmark.circle.fill")
+                            .foregroundColor(Theme.profit)
+                            .padding(.horizontal, 4)
                     }
                 }
-                .alert("Switch to a real-money account?", isPresented: $showRealAccountConfirm) {
-                    Button("Switch to Real Account", role: .destructive) {
-                        viewModel.config.account_type = "real"
+                .padding(20)
+                .frame(maxWidth: 900, alignment: .leading)
+                .frame(maxWidth: .infinity)
+            }
+            // NOTE: deliberately NOT applying .textSelection(.enabled) to this
+            // whole ScrollView. On macOS that modifier installs a selection
+            // gesture over everything beneath it, which was intercepting
+            // clicks meant for the NSViewRepresentable text fields below and
+            // is why typing stopped working in every field on this screen.
+            // Instead, selection is enabled individually on the plain label/
+            // caption Text views further down, which is all that's needed
+            // for "select and copy" without blocking keyboard input.
+            .background(Theme.pageBackground.ignoresSafeArea())
+            .navigationTitle("Bot Settings")
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button(action: copyAllSettings) {
+                        Label("Copy All", systemImage: "doc.on.doc")
                     }
-                    Button("Stay on Demo", role: .cancel) { selectedAccountIsDemo = true }
-                } message: {
-                    Text("The bot will place trades using real funds from your Deriv account. Make sure your risk settings are correct before switching.")
                 }
-            } else {
-                // Fallback on earlier versions
+            }
+            .onChange(of: viewModel.config.account_type) { _, newValue in
+                let newIsDemo = newValue != "real"
+                if selectedAccountIsDemo != newIsDemo { selectedAccountIsDemo = newIsDemo }
+            }
+            .onChange(of: selectedAccountIsDemo) { _, newIsDemo in
+                DispatchQueue.main.async {
+                    if newIsDemo {
+                        viewModel.config.account_type = "demo"
+                    } else if viewModel.config.account_type != "real" {
+                        showRealAccountConfirm = true
+                    }
+                }
+            }
+            .alert("Switch to a real-money account?", isPresented: $showRealAccountConfirm) {
+                Button("Switch to Real Account", role: .destructive) {
+                    viewModel.config.account_type = "real"
+                }
+                Button("Stay on Demo", role: .cancel) { selectedAccountIsDemo = true }
+            } message: {
+                Text("The bot will place trades using real funds from your Deriv account. Make sure your risk settings are correct before switching.")
             }
         }
     }
@@ -80,6 +90,7 @@ public struct SettingsView: View {
                      : "Live mode — trades use real funds from your Deriv account.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                    .textSelection(.enabled)
             }
         }
     }
@@ -88,22 +99,22 @@ public struct SettingsView: View {
         settingsCard("Account & Credentials", systemImage: "person.crop.circle.fill") {
             editableRow("Deriv API Token") {
                 NativeEditableField(text: $viewModel.config.api_token, placeholder: "Enter your Deriv Personal Access Token", isSecure: true)
-                    .frame(width: 360, height: 24)
+                    .frame(minWidth: 260, maxWidth: 420, minHeight: 24)
             }
 
             editableRow("App ID") {
                 NativeEditableField(text: $viewModel.config.app_id, placeholder: "Enter current Deriv App ID")
-                    .frame(width: 260, height: 24)
+                    .frame(minWidth: 180, maxWidth: 320, minHeight: 24)
             }
 
             editableRow("Market Symbol") {
                 NativeEditableField(text: $viewModel.config.symbol, placeholder: "e.g. R_100")
-                    .frame(width: 280, height: 26)
+                    .frame(minWidth: 160, maxWidth: 320, minHeight: 26)
             }
 
             editableRow("Currency") {
                 NativeEditableField(text: $viewModel.config.currency, placeholder: "e.g. USD")
-                    .frame(width: 180, height: 26)
+                    .frame(minWidth: 120, maxWidth: 220, minHeight: 26)
             }
         }
     }
@@ -140,12 +151,13 @@ public struct SettingsView: View {
                     Text("Both").tag("BOTH")
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 300)
+                .frame(minWidth: 240, maxWidth: 340)
             }
 
             Text("Controls which digit contract types the strategy is allowed to place. Both preserves the existing UNDER/OVER recovery behavior.")
                 .font(.caption)
                 .foregroundColor(.secondary)
+                .textSelection(.enabled)
         }
     }
 
@@ -190,7 +202,9 @@ public struct SettingsView: View {
 
     private func editableRow<Content: View>(_ title: String, @ViewBuilder control: () -> Content) -> some View {
         HStack(alignment: .center, spacing: 16) {
-            Text(title).frame(minWidth: 180, alignment: .leading)
+            Text(title)
+                .frame(minWidth: 180, alignment: .leading)
+                .textSelection(.enabled)
             Spacer(minLength: 8)
             control()
         }
@@ -199,24 +213,68 @@ public struct SettingsView: View {
     private func numberRow(_ title: String, value: Binding<Double>) -> some View {
         editableRow(title) {
             NativeNumberField(value: value, placeholder: title)
-                .frame(width: 180, height: 26)
+                .frame(minWidth: 120, maxWidth: 220, minHeight: 26)
         }
     }
 
     private func integerRow(_ title: String, value: Binding<Int>) -> some View {
         editableRow(title) {
             NativeIntegerField(value: value, placeholder: title)
-                .frame(width: 180, height: 26)
+                .frame(minWidth: 100, maxWidth: 200, minHeight: 26)
         }
     }
 
     private func editableDigitRow(_ title: String, value: Binding<Int>, range: ClosedRange<Int> = 0...9) -> some View {
         editableRow(title) {
             NativeIntegerField(value: value, placeholder: title, range: range)
-                .frame(width: 180, height: 26)
+                .frame(minWidth: 100, maxWidth: 200, minHeight: 26)
         }
     }
 }
+
+private extension SettingsView {
+    func copyAllSettings() {
+        let c = viewModel.config
+        let maskedToken = c.api_token.isEmpty
+            ? "(not set)"
+            : String(repeating: "•", count: max(0, c.api_token.count - 4)) + c.api_token.suffix(4)
+        let lines: [String] = [
+            "DERIV ENGINE — BOT SETTINGS",
+            "Account Type: \(c.account_type.uppercased())",
+            "API Token: \(maskedToken)",
+            "App ID: \(c.app_id)",
+            "Market Symbol: \(c.symbol)",
+            "Currency: \(c.currency)",
+            "",
+            String(format: "Base Stake: $%.2f", c.base_stake),
+            String(format: "Max Stake Limit: $%.2f", c.max_stake),
+            "Martingale Multiplier: \(c.martingale)x",
+            "",
+            String(format: "Take Profit: $%.2f", c.take_profit),
+            String(format: "Stop Loss: $%.2f", c.stop_loss),
+            "Max Runs / Trades: \(c.max_runs)",
+            "Max Loss Streak: \(c.max_loss_streak)",
+            "",
+            "Under Trigger Digit: \(c.under_trigger_digit)",
+            "Over Trigger Digit: \(c.over_trigger_digit)",
+            "Win Prediction Digit: \(c.win_predict_digit)",
+            "Loss Prediction Digit: \(c.loss_predict_digit)",
+            "Recovery Wins Target: \(c.recovery_wins_required)",
+            "Allowed Contract Types: \(c.contract_type_mode)"
+        ]
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+    }
+}
+
+// MARK: - Native AppKit-backed fields
+//
+// SwiftUI's own TextField on macOS has long-standing quirks (bindings that
+// only update on Return, cursor jumps, etc.), so these fields wrap NSTextField
+// directly for correct native typing/selection behavior. Each field now also
+// reports every keystroke back through the binding (controlTextDidChange), so
+// other parts of the UI that read these values (e.g. live previews) stay in
+// sync while you type — not just after you click away.
 
 struct NativeEditableField: NSViewRepresentable {
     @Binding var text: String
@@ -254,6 +312,11 @@ struct NativeEditableField: NSViewRepresentable {
 
         func controlTextDidBeginEditing(_ notification: Notification) {
             isEditing = true
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            binding.wrappedValue = field.stringValue
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
@@ -317,6 +380,14 @@ struct NativeNumberField: NSViewRepresentable {
 
         func controlTextDidBeginEditing(_ notification: Notification) { isEditing = true }
 
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            let normalized = field.stringValue.replacingOccurrences(of: ",", with: ".")
+            if let parsed = Double(normalized) {
+                binding.wrappedValue = parsed
+            }
+        }
+
         func controlTextDidEndEditing(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
             let normalized = field.stringValue.replacingOccurrences(of: ",", with: ".")
@@ -373,6 +444,13 @@ struct NativeIntegerField: NSViewRepresentable {
         }
 
         func controlTextDidBeginEditing(_ notification: Notification) { isEditing = true }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            if let parsed = Int(field.stringValue.filter { $0.isNumber || $0 == "-" }) {
+                binding.wrappedValue = min(max(parsed, range.lowerBound), range.upperBound)
+            }
+        }
 
         func controlTextDidEndEditing(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
