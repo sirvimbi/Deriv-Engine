@@ -90,16 +90,10 @@ public struct SettingsView: View {
 
             editableRow("App ID") {
                 NativeEditableField(
-                    text: Binding(
-                        get: { viewModel.config.app_id == 0 ? "" : String(viewModel.config.app_id) },
-                        set: { newValue in
-                            let digits = newValue.filter(\.isNumber)
-                            viewModel.config.app_id = Int(digits) ?? 0
-                        }
-                    ),
+                    text: $viewModel.config.app_id,
                     placeholder: "Enter current Deriv App ID"
                 )
-                .frame(width: 180, height: 24)
+                .frame(width: 260, height: 24)
             }
 
             editableRow("Market Symbol") {
