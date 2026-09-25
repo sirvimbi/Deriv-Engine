@@ -115,11 +115,14 @@ public struct SettingsView: View {
 
     private var stakeCard: some View {
         settingsCard("Stake & Martingale Settings", systemImage: "chart.line.uptrend.xyaxis") {
+            Text("Stake amounts use separate whole-dollar and cents selectors — no typing required.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             dropdownRow("Base Stake ($)") {
-                DoubleDropdown("Base Stake", value: $viewModel.config.base_stake, range: 0...100)
+                DecimalAmountDropdown("Base Stake", value: $viewModel.config.base_stake, range: 0...100)
             }
             dropdownRow("Max Stake Limit ($)") {
-                DoubleDropdown("Max Stake Limit", value: $viewModel.config.max_stake, range: 0...1000)
+                DecimalAmountDropdown("Max Stake Limit", value: $viewModel.config.max_stake, range: 0...1000)
             }
             dropdownRow("Martingale Multiplier") {
                 DoubleDropdown("Martingale Multiplier", value: $viewModel.config.martingale, range: 0...50, step: 0.1)
