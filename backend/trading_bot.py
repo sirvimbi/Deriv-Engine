@@ -54,9 +54,11 @@ class TradingBot:
         logger.info(f"[{level.upper()}] {message}")
         if self.status_broadcast_callback:
             try:
-                asyncio.create_task(self.status_broadcast_callback("log", log_item.dict()))
-            except Exception:
-                pass
+                result = self.status_broadcast_callback("log", log_item.dict())
+                if asyncio.iscoroutine(result):
+                    asyncio.create_task(result)
+            except Exception as e:
+                logger.debug(f"Unable to broadcast log event: {e}")
 
     def update_config(self, new_config: TradingConfig):
         self.config = new_config
