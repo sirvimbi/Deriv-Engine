@@ -34,10 +34,7 @@ public struct SettingsView: View {
             }
             .background(Theme.pageBackground.ignoresSafeArea())
             .navigationTitle("Bot Settings")
-            .alert(
-                "Switch to a real-money account?",
-                isPresented: $showRealAccountConfirm
-            ) {
+            .alert("Switch to a real-money account?", isPresented: $showRealAccountConfirm) {
                 Button("Switch to Real Account", role: .destructive) {
                     viewModel.config.account_type = "real"
                 }
@@ -80,20 +77,13 @@ public struct SettingsView: View {
     private var credentialsCard: some View {
         settingsCard("Account & Credentials", systemImage: "person.crop.circle.fill") {
             editableRow("Deriv API Token") {
-                NativeEditableField(
-                    text: $viewModel.config.api_token,
-                    placeholder: "Enter your Deriv API token",
-                    isSecure: true
-                )
-                .frame(width: 360, height: 24)
+                NativeEditableField(text: $viewModel.config.api_token, placeholder: "Enter your Deriv Personal Access Token", isSecure: true)
+                    .frame(width: 360, height: 24)
             }
 
             editableRow("App ID") {
-                NativeEditableField(
-                    text: $viewModel.config.app_id,
-                    placeholder: "Enter current Deriv App ID"
-                )
-                .frame(width: 260, height: 24)
+                NativeEditableField(text: $viewModel.config.app_id, placeholder: "Enter current Deriv App ID")
+                    .frame(width: 260, height: 24)
             }
 
             editableRow("Market Symbol") {
@@ -174,36 +164,20 @@ public struct SettingsView: View {
         .padding(.top, 4)
     }
 
-    private func settingsCard<Content: View>(
-        _ title: String,
-        systemImage: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
+    private func settingsCard<Content: View>(_ title: String, systemImage: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label(title, systemImage: systemImage)
-                .font(.headline)
-
+            Label(title, systemImage: systemImage).font(.headline)
             content()
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.cornerRadiusLarge, style: .continuous)
-                .fill(Theme.cardBackground(.light))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.cornerRadiusLarge, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        )
+        .background(RoundedRectangle(cornerRadius: Theme.cornerRadiusLarge, style: .continuous).fill(Theme.cardBackground(.light)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cornerRadiusLarge, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 1))
     }
 
-    private func editableRow<Content: View>(
-        _ title: String,
-        @ViewBuilder control: () -> Content
-    ) -> some View {
+    private func editableRow<Content: View>(_ title: String, @ViewBuilder control: () -> Content) -> some View {
         HStack(alignment: .center, spacing: 16) {
-            Text(title)
-                .frame(minWidth: 180, alignment: .leading)
+            Text(title).frame(minWidth: 180, alignment: .leading)
             Spacer(minLength: 8)
             control()
         }
@@ -224,8 +198,7 @@ public struct SettingsView: View {
                     }
                 ),
                 placeholder: title
-            )
-            .frame(width: 180, height: 24)
+            ).frame(width: 180, height: 24)
         }
     }
 
@@ -240,29 +213,20 @@ public struct SettingsView: View {
                     }
                 ),
                 placeholder: title
-            )
-            .frame(width: 180, height: 24)
+            ).frame(width: 180, height: 24)
         }
     }
 
-    private func stepperRow(
-        _ title: String,
-        value: Binding<Int>,
-        range: ClosedRange<Int> = 0...9
-    ) -> some View {
+    private func stepperRow(_ title: String, value: Binding<Int>, range: ClosedRange<Int> = 0...9) -> some View {
         HStack {
             Text(title)
             Spacer()
             Stepper(value: value, in: range) {
-                Text("\(value.wrappedValue)")
-                    .fontWeight(.semibold)
-                    .frame(minWidth: 32)
-            }
-            .fixedSize()
+                Text("\(value.wrappedValue)").fontWeight(.semibold).frame(minWidth: 32)
+            }.fixedSize()
         }
     }
 }
-
 
 private struct NativeEditableField: NSViewRepresentable {
     @Binding var text: String
@@ -309,14 +273,21 @@ private struct NativeEditableField: NSViewRepresentable {
 
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
-            binding.wrappedValue = field.stringValue
+            let value = field.stringValue
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.binding.wrappedValue = value
+            }
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
-            if let field = notification.object as? NSTextField {
-                binding.wrappedValue = field.stringValue
+            guard let field = notification.object as? NSTextField else { return }
+            let value = field.stringValue
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.binding.wrappedValue = value
+                self.isEditing = false
             }
-            isEditing = false
         }
     }
 }
