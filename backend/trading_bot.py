@@ -21,6 +21,7 @@ class TradingBot:
         self.time_duration = config.duration
         self.loss_streak = 0
         self.recovery_win_count = 0
+        self.in_recovery_cycle = False
         
         # Reporting / Metrics
         self.total_profit = 0.0
@@ -121,6 +122,7 @@ class TradingBot:
         self.time_duration = self.config.duration
         self.loss_streak = 0
         self.recovery_win_count = 0
+        self.in_recovery_cycle = False
         self.total_profit = 0.0
         self.runs = 0
         self.total_wins = 0
@@ -290,18 +292,24 @@ class TradingBot:
 
             self.add_log("success", f"Trade WON! +${profit:.2f} | Total Profit: ${self.total_profit:.2f}")
 
-            # Recovery logic after win
-            if self.stake > self.config.base_stake:
+            # Recovery cycle: keep the dedicated recovery prediction until
+            # the configured number of recovery wins is completed.
+            if self.in_recovery_cycle:
                 self.recovery_win_count += 1
                 if self.recovery_win_count >= self.config.recovery_wins_required:
                     self.stake = self.config.base_stake
                     self.recovery_win_count = 0
-                    self.add_log("info", f"Recovery win goal reached ({self.config.recovery_wins_required} wins). Resetting stake to base: ${self.stake:.2f}")
+                    self.in_recovery_cycle = False
+                    self.predict = self.config.win_predict_digit
+                    self.add_log("info", f"Recovery win goal reached ({self.config.recovery_wins_required} wins). Recovery complete; resetting stake to base ${self.stake:.2f} and prediction digit to {self.predict}.")
+                else:
+                    self.predict = self.config.recovery_win_predict_digit
+                    self.add_log("info", f"Recovery win {self.recovery_win_count}/{self.config.recovery_wins_required}. Continuing recovery with prediction digit {self.predict}.")
             else:
                 self.stake = self.config.base_stake
                 self.recovery_win_count = 0
+                self.predict = self.config.win_predict_digit
 
-            self.predict = self.config.win_predict_digit
             self.time_duration = self.config.duration
             self.loss_streak = 0
 
@@ -322,17 +330,20 @@ class TradingBot:
             if self.loss_streak >= self.config.max_loss_streak:
                 self.stake = self.config.base_stake
                 self.recovery_win_count = 0
+                self.in_recovery_cycle = False
                 self.predict = self.config.win_predict_digit
                 self.time_duration = self.config.duration
                 self.loss_streak = 0
                 self.add_log("warn", f"Max loss streak threshold ({self.config.max_loss_streak}) hit! Resetting stake to base: ${self.stake:.2f}")
             else:
-                # Martingale multiplier
+                # A loss starts/continues recovery. Every trade in this cycle
+                # uses the dedicated recovery-win prediction digit.
                 self.stake = min(self.stake * self.config.martingale, self.config.max_stake)
                 self.recovery_win_count = 0
-                self.predict = self.config.loss_predict_digit
+                self.in_recovery_cycle = True
+                self.predict = self.config.recovery_win_predict_digit
                 self.time_duration = self.config.duration
-                self.add_log("info", f"Next stake increased to ${self.stake:.2f} (Martingale x{self.config.martingale}). Target digit prediction: {self.predict}")
+                self.add_log("info", f"Next stake increased to ${self.stake:.2f} (Martingale x{self.config.martingale}). Recovery prediction digit: {self.predict}")
 
         # Check stopping criteria
         if self.total_profit >= self.config.take_profit:
