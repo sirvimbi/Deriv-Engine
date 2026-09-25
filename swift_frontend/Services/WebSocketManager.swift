@@ -11,11 +11,11 @@ public class WebSocketManager: ObservableObject {
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var pingTimer: Timer?
-    private var wsURLString: String = "ws://localhost:8000/ws/live"
+    private var wsURLString: String = "ws://127.0.0.1:8000/ws/live"
 
     private init() {}
 
-    public func connect(host: String = "localhost", port: Int = 8000) {
+    public func connect(host: String = "127.0.0.1", port: Int = 8000) {
         disconnect()
         wsURLString = "ws://\(host):\(port)/ws/live"
         guard let url = URL(string: wsURLString) else { return }
