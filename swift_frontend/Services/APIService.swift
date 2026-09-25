@@ -66,6 +66,9 @@ public class APIService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let (data, response) = try await URLSession.shared.data(for: request)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            // Older backend processes may not yet expose the reset route. A
+            // 404 must not make the dashboard's local Clear action fail.
+            if http.statusCode == 404 { return }
             let detail = String(data: data, encoding: .utf8) ?? "Log reset failed"
             throw NSError(domain: "ExecutionLogs", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: detail])
         }
