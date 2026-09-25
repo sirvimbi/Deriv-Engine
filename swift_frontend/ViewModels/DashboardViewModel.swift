@@ -12,6 +12,7 @@ public class DashboardViewModel: ObservableObject {
     @Published public var errorMessage: String? = nil
 
     private var cancellables = Set<AnyCancellable>()
+    private var equityTask: Task<Void, Never>?
 
     public init() {
         setupSubscriptions()
@@ -57,6 +58,13 @@ public class DashboardViewModel: ObservableObject {
 
     public func fetchInitialData() {
         WebSocketManager.shared.connect()
+        equityTask?.cancel()
+        equityTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.refreshEquity()
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+            }
+        }
         Task {
             do {
                 self.botStatus = try await APIService.shared.getBotStatus()
@@ -64,6 +72,17 @@ public class DashboardViewModel: ObservableObject {
             } catch {
                 self.errorMessage = "Backend connection error: \(error.localizedDescription)"
             }
+        }
+    }
+
+    private func refreshEquity() async {
+        do {
+            let balance = try await APIService.shared.getAccountBalance()
+            guard !Task.isCancelled else { return }
+            botStatus.equity = balance
+        } catch {
+            // WebSocket balance subscription remains the primary live path.
+            // Polling is a recovery path for dropped/misordered WS events.
         }
     }
 
