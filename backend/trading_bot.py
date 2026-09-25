@@ -29,6 +29,8 @@ class TradingBot:
         self.total_losses = 0
         self.lowest_balance = 0.0
         self.lowest_loss = 0.0
+        self.account_equity: Optional[float] = None
+        self.account_balance: Optional[float] = None
         self.wins_in_row = 0
         self.current_win_streak = 0
         self.loss_in_row = 0
@@ -83,6 +85,7 @@ class TradingBot:
             # authorize() obtains a current Deriv OTP URL and establishes the authenticated socket.
             # Do not call connect() first: that falls back to the legacy WebSocket host and can return HTTP 520.
             await self.client.authorize(self.config.api_token)
+            await self.client.subscribe_balance(self._on_balance)
         except Exception as e:
             self.add_log("error", f"Authorization failed: {str(e)}")
             raise e
@@ -145,6 +148,19 @@ class TradingBot:
                 await self.status_broadcast_callback("status", self.get_status().dict())
             except Exception:
                 pass
+
+    async def _on_balance(self, balance_data: Dict[str, Any]):
+        value = balance_data.get("balance")
+        if value is None:
+            return
+        self.account_balance = round(float(value), 2)
+        self.account_equity = self.account_balance
+        if self.status_broadcast_callback:
+            try:
+                await self.status_broadcast_callback("account_equity", {"equity": self.account_equity, "balance": self.account_balance, "currency": balance_data.get("currency", self.config.currency)})
+                await self.status_broadcast_callback("status", self.get_status().dict())
+            except Exception as e:
+                logger.debug(f"Unable to broadcast account equity: {e}")
 
     async def _on_tick(self, tick_data: Dict[str, Any]):
         if not self.is_running:
@@ -343,5 +359,6 @@ class TradingBot:
             last_tick_quote=self.last_tick_quote,
             duration_minutes=round(duration_mins, 1),
             stop_reason=self.stop_reason,
-            config=self.config
+            config=self.config,
+            equity=self.account_equity
         )
