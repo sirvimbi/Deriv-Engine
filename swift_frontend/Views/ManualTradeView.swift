@@ -12,7 +12,7 @@ public struct ManualTradeView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     settingsCard("Trade Configuration", systemImage: "slider.horizontal.3") {
                         editableRow("Symbol") {
-                            NativeEditableField(text: $viewModel.symbol, placeholder: "e.g. R_100")
+                            EditableTextField(text: $viewModel.symbol, placeholder: "e.g. R_100")
                                 .frame(minWidth: 220, maxWidth: 360, minHeight: 26)
                         }
 
@@ -29,24 +29,24 @@ public struct ManualTradeView: View {
                         }
 
                         editableRow("Stake Amount ($)") {
-                            NativeNumberField(value: $viewModel.amount, placeholder: "Stake amount")
+                            EditableNumberField(value: $viewModel.amount, placeholder: "Stake amount")
                                 .frame(minWidth: 140, maxWidth: 220, minHeight: 26)
                         }
 
                         if viewModel.contractType.contains("DIGIT") {
                             editableRow("Prediction Digit") {
-                                NativeIntegerField(value: $viewModel.prediction, placeholder: "0-9", range: 0...9)
+                                EditableIntegerField(value: $viewModel.prediction, placeholder: "0-9", range: 0...9)
                                     .frame(minWidth: 140, maxWidth: 220, minHeight: 26)
                             }
                         }
 
                         editableRow("Duration (Ticks)") {
-                            NativeIntegerField(value: $viewModel.duration, placeholder: "1-10", range: 1...10)
+                            EditableIntegerField(value: $viewModel.duration, placeholder: "1-10", range: 1...10)
                                 .frame(minWidth: 140, maxWidth: 220, minHeight: 26)
                         }
 
                         editableRow("Currency") {
-                            NativeEditableField(text: $viewModel.currency, placeholder: "e.g. USD")
+                            EditableTextField(text: $viewModel.currency, placeholder: "e.g. USD")
                                 .frame(minWidth: 120, maxWidth: 220, minHeight: 26)
                         }
                     }
@@ -147,6 +147,79 @@ public struct ManualTradeView: View {
             Spacer(minLength: 8)
             control()
         }
+    }
+}
+
+private struct EditableTextField: View {
+    @Binding var text: String
+    let placeholder: String
+    var isSecure = false
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+    var body: some View {
+        Group {
+            if isSecure { SecureField(placeholder, text: $draft) }
+            else { TextField(placeholder, text: $draft) }
+        }
+        .textFieldStyle(.roundedBorder)
+        .focused($focused)
+        .onAppear { draft = text }
+        .onChange(of: focused) { _, active in
+            if active { draft = text } else { text = draft }
+        }
+        .onChange(of: text) { _, newValue in
+            if !focused && draft != newValue { draft = newValue }
+        }
+    }
+}
+
+private struct EditableNumberField: View {
+    @Binding var value: Double
+    let placeholder: String
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+    var body: some View {
+        TextField(placeholder, text: $draft)
+            .textFieldStyle(.roundedBorder)
+            .focused($focused)
+            .onAppear { draft = String(format: "%.2f", value) }
+            .onChange(of: focused) { _, active in
+                if active { draft = String(format: "%.2f", value) }
+                else if let parsed = Double(draft.replacingOccurrences(of: ",", with: ".")) {
+                    value = parsed; draft = String(format: "%.2f", parsed)
+                } else { draft = String(format: "%.2f", value) }
+            }
+            .onChange(of: value) { _, newValue in
+                if !focused { draft = String(format: "%.2f", newValue) }
+            }
+    }
+}
+
+private struct EditableIntegerField: View {
+    @Binding var value: Int
+    let placeholder: String
+    let range: ClosedRange<Int>
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+    init(value: Binding<Int>, placeholder: String, range: ClosedRange<Int>) {
+        self._value = value; self.placeholder = placeholder; self.range = range
+    }
+    var body: some View {
+        TextField(placeholder, text: $draft)
+            .textFieldStyle(.roundedBorder)
+            .focused($focused)
+            .onAppear { draft = String(value) }
+            .onChange(of: focused) { _, active in
+                if active { draft = String(value) }
+                else {
+                    let parsed = Int(draft.filter { $0.isNumber || $0 == "-" }) ?? value
+                    value = min(max(parsed, range.lowerBound), range.upperBound)
+                    draft = String(value)
+                }
+            }
+            .onChange(of: value) { _, newValue in
+                if !focused { draft = String(newValue) }
+            }
     }
 }
 

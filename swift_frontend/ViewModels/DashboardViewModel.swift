@@ -12,10 +12,15 @@ public class DashboardViewModel: ObservableObject {
     @Published public var errorMessage: String? = nil
 
     private var cancellables = Set<AnyCancellable>()
+    private var equityTask: Task<Void, Never>?
 
     public init() {
         setupSubscriptions()
         fetchInitialData()
+    }
+
+    deinit {
+        equityTask?.cancel()
     }
 
     private func setupSubscriptions() {
@@ -57,6 +62,13 @@ public class DashboardViewModel: ObservableObject {
 
     public func fetchInitialData() {
         WebSocketManager.shared.connect()
+        equityTask?.cancel()
+        equityTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.refreshEquity()
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+            }
+        }
         Task {
             do {
                 self.botStatus = try await APIService.shared.getBotStatus()
@@ -67,7 +79,23 @@ public class DashboardViewModel: ObservableObject {
         }
     }
 
+    private func refreshEquity() async {
+        do {
+            let balance = try await APIService.shared.getAccountBalance()
+            guard !Task.isCancelled else { return }
+            botStatus.equity = balance
+        } catch {
+            // WebSocket balance subscription remains the primary live path.
+            // Polling is a recovery path for dropped/misordered WS events.
+        }
+    }
+
     public func clearLogs() {
+        // Clear the visible dashboard immediately. The backend reset is best-effort
+        // so a stale backend cannot make the button appear broken.
+        logs.removeAll()
+        WebSocketManager.shared.newLogs.removeAll()
+        WebSocketManager.shared.clearServerLogs()
         Task {
             do {
                 try await APIService.shared.clearBotLogs()

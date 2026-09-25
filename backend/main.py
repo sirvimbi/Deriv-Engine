@@ -50,28 +50,27 @@ bot.set_broadcast_callback(broadcast_ws_event)
 
 
 async def equity_broadcast_loop():
-    """Independently polls and broadcasts the account balance so the
-    Dashboard's ACCOUNT EQUITY tile stays live in real time, regardless of
-    whether the bot itself is running or its own trading loop happens to
-    report equity. Runs for the whole lifetime of the server."""
+    """Keep account balance/equity live using the bot's authenticated WS.
+
+    Deriv's balance endpoint is the authoritative account value and supports
+    real-time subscriptions. Reusing the bot's authenticated client avoids
+    creating a new OTP/WebSocket session every five seconds, which can race
+    with trading and make the balance path unreliable.
+    """
     while True:
         try:
-            if bot.config.api_token and bot.config.app_id:
-                client = DerivClient(app_id=bot.config.app_id, account_type=bot.config.account_type)
-                await client.authorize(bot.config.api_token)
-                balance = await client.get_balance()
-                await client.disconnect()
-                equity_value = balance.get("balance") if isinstance(balance, dict) else None
-                if equity_value is not None:
-                    # Persist the latest value on the canonical bot instance so
-                    # a newly connected dashboard gets equity in its initial status.
-                    bot.account_balance = round(float(equity_value), 2)
-                    bot.account_equity = bot.account_balance
-                    await broadcast_ws_event("account_equity", {"equity": bot.account_equity, "balance": bot.account_balance})
-                    await broadcast_ws_event("status", bot.get_status().dict())
+            if bot.client.authorized:
+                balance = await bot.client.get_balance()
+                await bot._on_balance(balance)
+            elif bot.config.api_token and bot.config.app_id:
+                # Dashboard can still show equity before the strategy starts.
+                await bot.client.authorize(bot.config.api_token)
+                await bot.client.subscribe_balance(bot._on_balance)
+                balance = await bot.client.get_balance()
+                await bot._on_balance(balance)
         except Exception as e:
-            logger.warning(f"Equity broadcast skipped: {e}")
-        await asyncio.sleep(5)
+            logger.warning(f"Equity refresh skipped: {e}")
+        await asyncio.sleep(3)
 
 
 @app.on_event("startup")
@@ -223,6 +222,9 @@ async def websocket_endpoint(websocket: WebSocket):
             action = data.get("action")
             if action == "ping":
                 await websocket.send_text(json.dumps({"type": "pong"}))
+            elif action == "clear_logs":
+                bot.clear_logs()
+                await websocket.send_text(json.dumps({"type": "logs_reset", "data": {}}))
             elif action == "get_status":
                 await websocket.send_text(json.dumps({"type": "status", "data": bot.get_status().dict()}))
 

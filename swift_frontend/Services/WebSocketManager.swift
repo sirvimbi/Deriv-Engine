@@ -76,6 +76,12 @@ public class WebSocketManager: ObservableObject {
         }
     }
 
+    public func clearServerLogs() {
+        webSocketTask?.send(.string("{\\"action\\":\\"clear_logs\\"}")) { error in
+            if let error { print("WS clear logs error: \\(error.localizedDescription)") }
+        }
+    }
+
     private func sendPing() {
         let pingJSON = "{\"action\": \"ping\"}"
         webSocketTask?.send(.string(pingJSON)) { [weak self] error in

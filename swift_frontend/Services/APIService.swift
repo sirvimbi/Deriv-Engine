@@ -66,9 +66,25 @@ public class APIService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let (data, response) = try await URLSession.shared.data(for: request)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            // Older backend processes may not yet expose the reset route. A
+            // 404 must not make the dashboard's local Clear action fail.
+            if http.statusCode == 404 { return }
             let detail = String(data: data, encoding: .utf8) ?? "Log reset failed"
             throw NSError(domain: "ExecutionLogs", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: detail])
         }
+    }
+
+    public func getAccountBalance() async throws -> Double {
+        guard let url = URL(string: "\(baseURL)/api/account/balance") else { throw URLError(.badURL) }
+        let (data, response) = try await URLSession.shared.data(from: url)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            let detail = String(data: data, encoding: .utf8) ?? "Account balance request failed"
+            throw NSError(domain: "AccountBalance", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: detail])
+        }
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        if let balance = object?["balance"] as? [String: Any], let value = balance["balance"] as? Double { return value }
+        if let balance = object?["balance"] as? NSNumber { return balance.doubleValue }
+        throw NSError(domain: "AccountBalance", code: -1, userInfo: [NSLocalizedDescriptionKey: "Backend returned no account balance."])
     }
 
     public func getBotLogs() async throws -> [LogMessage] {
