@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from models import TradingConfig, BotStatus, ManualTradeRequest, LogMessage
 from trading_bot import TradingBot
 from deriv_client import DerivClient
+from runtime import ENGINE_BUILD, ENGINE_DESCRIPTION
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("MainServer")
@@ -106,6 +107,15 @@ async def equity_broadcast_loop():
 async def _start_background_tasks():
     asyncio.create_task(equity_broadcast_loop())
 
+
+@app.get("/api/runtime")
+def get_runtime():
+    """Expose the backend build identity so the macOS client cannot trade against a stale process."""
+    return {
+        "engine_build": ENGINE_BUILD,
+        "description": ENGINE_DESCRIPTION,
+        "api": "current-deriv-options-v1"
+    }
 
 @app.get("/")
 def read_root():
