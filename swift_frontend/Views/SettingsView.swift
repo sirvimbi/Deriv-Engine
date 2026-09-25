@@ -122,15 +122,16 @@ public struct SettingsView: View {
                 }
             }
             .navigationTitle("Bot Settings")
-            .confirmationDialog(
+            .alert(
                 "Switch to a real-money account?",
-                isPresented: $showRealAccountConfirm,
-                titleVisibility: .visible
+                isPresented: $showRealAccountConfirm
             ) {
                 Button("Switch to Real Account", role: .destructive) {
                     viewModel.config.account_type = "real"
                 }
                 Button("Stay on Demo", role: .cancel) {}
+            } message: {
+                Text("The bot will place trades using real funds from your Deriv account. Make sure your risk settings below are correct before switching.")
             } message: {
                 Text("The bot will place trades using real funds from your Deriv account. Make sure your risk settings below are correct before switching.")
             }
