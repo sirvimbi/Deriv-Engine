@@ -60,7 +60,7 @@ def get_config():
     return bot.config
 
 @app.post("/api/config", response_model=TradingConfig)
-def update_config(config: TradingConfig):
+async def update_config(config: TradingConfig):
     bot.update_config(config)
     return bot.config
 
@@ -91,7 +91,7 @@ def get_bot_logs():
 
 @app.post("/api/trade/place")
 async def place_manual_trade(req: ManualTradeRequest):
-    client = DerivClient(app_id=bot.config.app_id)
+    client = DerivClient(app_id=bot.config.app_id, account_type=bot.config.account_type)
     try:
         await client.connect()
         await client.authorize(bot.config.api_token)
