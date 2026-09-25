@@ -22,6 +22,7 @@ class TradingBot:
         self.loss_streak = 0
         self.recovery_win_count = 0
         self.in_recovery_cycle = False
+        self.recovery_prediction_active = False
         
         # Reporting / Metrics
         self.total_profit = 0.0
@@ -123,6 +124,7 @@ class TradingBot:
         self.loss_streak = 0
         self.recovery_win_count = 0
         self.in_recovery_cycle = False
+        self.recovery_prediction_active = False
         self.total_profit = 0.0
         self.runs = 0
         self.total_wins = 0
@@ -292,7 +294,9 @@ class TradingBot:
 
             self.add_log("success", f"Trade WON! +${profit:.2f} | Total Profit: ${self.total_profit:.2f}")
 
-            # Recovery cycle: keep the dedicated recovery prediction until
+            # Recovery cycle: the first Martingale trade keeps the existing
+            # loss prediction. Once that trade completes, every subsequent
+            # recovery trade uses the dedicated recovery-win prediction until
             # the configured number of recovery wins is completed.
             if self.in_recovery_cycle:
                 self.recovery_win_count += 1
@@ -300,14 +304,17 @@ class TradingBot:
                     self.stake = self.config.base_stake
                     self.recovery_win_count = 0
                     self.in_recovery_cycle = False
+                    self.recovery_prediction_active = False
                     self.predict = self.config.win_predict_digit
                     self.add_log("info", f"Recovery win goal reached ({self.config.recovery_wins_required} wins). Recovery complete; resetting stake to base ${self.stake:.2f} and prediction digit to {self.predict}.")
                 else:
+                    self.recovery_prediction_active = True
                     self.predict = self.config.recovery_win_predict_digit
                     self.add_log("info", f"Recovery win {self.recovery_win_count}/{self.config.recovery_wins_required}. Continuing recovery with prediction digit {self.predict}.")
             else:
                 self.stake = self.config.base_stake
                 self.recovery_win_count = 0
+                self.recovery_prediction_active = False
                 self.predict = self.config.win_predict_digit
 
             self.time_duration = self.config.duration
@@ -331,19 +338,25 @@ class TradingBot:
                 self.stake = self.config.base_stake
                 self.recovery_win_count = 0
                 self.in_recovery_cycle = False
+                self.recovery_prediction_active = False
                 self.predict = self.config.win_predict_digit
                 self.time_duration = self.config.duration
                 self.loss_streak = 0
                 self.add_log("warn", f"Max loss streak threshold ({self.config.max_loss_streak}) hit! Resetting stake to base: ${self.stake:.2f}")
             else:
-                # A loss starts/continues recovery. Every trade in this cycle
-                # uses the dedicated recovery-win prediction digit.
+                # Preserve the existing loss-prediction trade immediately after
+                # a loss. The following trade(s) in the recovery cycle switch to
+                # the dedicated recovery-win prediction digit.
                 self.stake = min(self.stake * self.config.martingale, self.config.max_stake)
                 self.recovery_win_count = 0
                 self.in_recovery_cycle = True
-                self.predict = self.config.recovery_win_predict_digit
+                if self.recovery_prediction_active:
+                    self.predict = self.config.recovery_win_predict_digit
+                else:
+                    self.recovery_prediction_active = True
+                    self.predict = self.config.loss_predict_digit
                 self.time_duration = self.config.duration
-                self.add_log("info", f"Next stake increased to ${self.stake:.2f} (Martingale x{self.config.martingale}). Recovery prediction digit: {self.predict}")
+                self.add_log("info", f"Next stake increased to ${self.stake:.2f} (Martingale x{self.config.martingale}). First recovery trade uses loss prediction digit: {self.predict}")
 
         # Check stopping criteria
         if self.total_profit >= self.config.take_profit:
