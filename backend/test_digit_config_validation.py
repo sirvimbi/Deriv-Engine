@@ -41,3 +41,9 @@ def test_digit_under_rejects_0_but_allows_1_to_9():
 
     for digit in range(1, 10):
         assert validate_digit_barrier("DIGITUNDER", digit) == digit
+
+def test_trading_config_preserves_decimal_stakes():
+    config = TradingConfig(base_stake=2.50, max_stake=25.75, martingale=1.5)
+    assert config.base_stake == 2.50
+    assert config.max_stake == 25.75
+    assert config.martingale == 1.5
