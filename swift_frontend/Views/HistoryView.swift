@@ -16,7 +16,7 @@ public struct HistoryView: View {
                 .padding(.horizontal)
                 .padding(.top, 12)
                 .onChange(of: viewModel.selectedTab) { _ in
-                    viewModel.loadHistory()
+                    viewModel.refreshNow()
                 }
 
                 summaryBanner
@@ -54,12 +54,16 @@ public struct HistoryView: View {
                     }
                 }
             }
+            .textSelection(.enabled)
             .background(Theme.pageBackground.ignoresSafeArea())
             .navigationTitle("Transactions")
             .toolbar {
-                ToolbarItem(placement: toolbarPlacement) {
-                    Button(action: { viewModel.loadHistory() }) {
-                        Image(systemName: "arrow.clockwise")
+                ToolbarItemGroup(placement: toolbarPlacement) {
+                    Button(action: { viewModel.clearSession() }) {
+                        Label("Clear", systemImage: "trash")
+                    }
+                    Button(action: { viewModel.refreshNow() }) {
+                        Label("Refresh", systemImage: "arrow.clockwise")
                     }
                 }
             }
@@ -126,6 +130,8 @@ public struct HistoryView: View {
             diff = p
         } else if let sp = tx.sell_price, let bp = tx.buy_price {
             diff = sp - bp
+        } else if let payout = tx.payout, let bp = tx.buy_price {
+            diff = payout - bp
         } else {
             diff = nil
         }
@@ -142,7 +148,7 @@ public struct HistoryView: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(tx.action?.capitalized ?? tx.symbol ?? "Option Trade")
+                Text((tx.action ?? tx.action_type)?.capitalized ?? tx.symbol ?? "Option Trade")
                     .font(.subheadline)
                     .fontWeight(.bold)
                     .lineLimit(1)

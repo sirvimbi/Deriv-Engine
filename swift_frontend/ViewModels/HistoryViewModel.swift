@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 @MainActor
 public class HistoryViewModel: ObservableObject {
@@ -12,15 +13,75 @@ public class HistoryViewModel: ObservableObject {
     @Published public var lossCount: Int = 0
     @Published public var errorMessage: String? = nil
 
+    private var cancellables = Set<AnyCancellable>()
+    private var refreshTask: Task<Void, Never>?
+    private var suppressAutoRefresh = false
+
     public init() {
+        setupLiveUpdates()
+        loadHistory()
+        startAutoRefresh()
+    }
+
+    deinit {
+        refreshTask?.cancel()
+    }
+
+    private func setupLiveUpdates() {
+        WebSocketManager.shared.$historyResetToken
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.clearSession()
+            }
+            .store(in: &cancellables)
+
+        WebSocketManager.shared.$historyRefreshToken
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.loadHistory(force: true)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func startAutoRefresh() {
+        refreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard !Task.isCancelled else { break }
+                await self?.loadHistoryAsync()
+            }
+        }
+    }
+
+    private func loadHistoryAsync() async {
         loadHistory()
     }
 
-    public func loadHistory() {
+    public func refreshNow() {
+        suppressAutoRefresh = false
+        loadHistory(force: true)
+    }
+
+    public func clearSession() {
+        suppressAutoRefresh = true
+        transactions.removeAll()
+        totalProfitSummary = 0
+        totalTradesCount = 0
+        winCount = 0
+        lossCount = 0
+        errorMessage = nil
+    }
+
+    public func loadHistory(force: Bool = false) {
+        if suppressAutoRefresh && !force { return }
         Task {
-            isLoading = true
-            errorMessage = nil
             do {
+                guard try await APIService.shared.getHistorySession() != nil else {
+                    clearSession()
+                    return
+                }
+                isLoading = true
+                errorMessage = nil
                 if selectedTab == 0 {
                     self.transactions = try await APIService.shared.fetchStatement(limit: limit)
                 } else {
@@ -46,6 +107,11 @@ public class HistoryViewModel: ObservableObject {
                 else if p < 0 { losses += 1 }
             } else if let sp = tx.sell_price, let bp = tx.buy_price {
                 let diff = sp - bp
+                profitSum += diff
+                if diff > 0 { wins += 1 }
+                else if diff < 0 { losses += 1 }
+            } else if let payout = tx.payout, let bp = tx.buy_price {
+                let diff = payout - bp
                 profitSum += diff
                 if diff > 0 { wins += 1 }
                 else if diff < 0 { losses += 1 }

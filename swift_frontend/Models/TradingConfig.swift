@@ -19,6 +19,7 @@ public struct TradingConfig: Codable, Equatable {
     public var duration_unit: String
     public var currency: String
     public var recovery_wins_required: Int
+    public var contract_type_mode: String
     public var account_type: String
 
     public var isDemo: Bool { account_type.lowercased() != "real" }
@@ -42,6 +43,7 @@ public struct TradingConfig: Codable, Equatable {
         duration_unit: String = "t",
         currency: String = "USD",
         recovery_wins_required: Int = 2,
+        contract_type_mode: String = "BOTH",
         account_type: String = "demo"
     ) {
         self.api_token = api_token
@@ -62,6 +64,7 @@ public struct TradingConfig: Codable, Equatable {
         self.duration_unit = duration_unit
         self.currency = currency
         self.recovery_wins_required = recovery_wins_required
+        self.contract_type_mode = contract_type_mode
         self.account_type = account_type
     }
 
@@ -91,6 +94,7 @@ public struct TradingConfig: Codable, Equatable {
         duration_unit = try c.decodeIfPresent(String.self, forKey: .duration_unit) ?? "t"
         currency = try c.decodeIfPresent(String.self, forKey: .currency) ?? "USD"
         recovery_wins_required = try c.decodeIfPresent(Int.self, forKey: .recovery_wins_required) ?? 2
+        contract_type_mode = try c.decodeIfPresent(String.self, forKey: .contract_type_mode) ?? "BOTH"
         account_type = try c.decodeIfPresent(String.self, forKey: .account_type) ?? "demo"
     }
 }

@@ -8,6 +8,8 @@ public class WebSocketManager: ObservableObject {
     @Published public var latestStatus: BotStatus?
     @Published public var latestTick: LiveTickData?
     @Published public var newLogs: [LogMessage] = []
+    @Published public var historyResetToken: Int = 0
+    @Published public var historyRefreshToken: Int = 0
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var pingTimer: Timer?
@@ -108,6 +110,12 @@ public class WebSocketManager: ObservableObject {
                            let tick = try? JSONDecoder().decode(LiveTickData.self, from: tickData) {
                             self.latestTick = tick
                         }
+                    } else if type == "logs_reset" {
+                        self.newLogs.removeAll()
+                    } else if type == "history_reset" {
+                        self.historyResetToken &+= 1
+                    } else if type == "history_refresh" {
+                        self.historyRefreshToken &+= 1
                     } else if type == "log", let logDict = json["data"] {
                         if let logData = try? JSONSerialization.data(withJSONObject: logDict),
                            let log = try? JSONDecoder().decode(LogMessage.self, from: logData) {

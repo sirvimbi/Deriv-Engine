@@ -7,115 +7,139 @@ public struct ManualTradeView: View {
 
     public var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    Picker("Symbol", selection: $viewModel.symbol) {
-                        Text("Volatility 100 Index (R_100)").tag("R_100")
-                        Text("Volatility 75 Index (R_75)").tag("R_75")
-                        Text("Volatility 50 Index (R_50)").tag("R_50")
-                        Text("Volatility 25 Index (R_25)").tag("R_25")
-                        Text("Volatility 10 Index (R_10)").tag("R_10")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    settingsCard("Trade Configuration", systemImage: "slider.horizontal.3") {
+                        editableRow("Symbol") {
+                            Picker("", selection: $viewModel.symbol) {
+                                Text("Volatility 100 Index (R_100)").tag("R_100")
+                                Text("Volatility 75 Index (R_75)").tag("R_75")
+                                Text("Volatility 50 Index (R_50)").tag("R_50")
+                                Text("Volatility 25 Index (R_25)").tag("R_25")
+                                Text("Volatility 10 Index (R_10)").tag("R_10")
+                            }
+                            .frame(width: 300)
+                        }
+
+                        editableRow("Contract Type") {
+                            Picker("", selection: $viewModel.contractType) {
+                                Text("DIGIT UNDER").tag("DIGITUNDER")
+                                Text("DIGIT OVER").tag("DIGITOVER")
+                                Text("RISE (CALL)").tag("CALL")
+                                Text("FALL (PUT)").tag("PUT")
+                                Text("DIGIT MATCH").tag("DIGITMATCH")
+                                Text("DIGIT DIFFER").tag("DIGITDIFF")
+                            }
+                            .frame(width: 220)
+                        }
+
+                        editableRow("Stake Amount ($)") {
+                            NativeNumberField(value: $viewModel.amount, placeholder: "Stake amount")
+                                .frame(width: 180, height: 26)
+                        }
+
+                        if viewModel.contractType.contains("DIGIT") {
+                            editableRow("Prediction Digit") {
+                                NativeIntegerField(value: $viewModel.prediction, placeholder: "0-9", range: 0...9)
+                                    .frame(width: 180, height: 26)
+                            }
+                        }
+
+                        editableRow("Duration (Ticks)") {
+                            NativeIntegerField(value: $viewModel.duration, placeholder: "1-10", range: 1...10)
+                                .frame(width: 180, height: 26)
+                        }
+
+                        editableRow("Currency") {
+                            Picker("", selection: $viewModel.currency) {
+                                Text("USD").tag("USD")
+                                Text("EUR").tag("EUR")
+                                Text("GBP").tag("GBP")
+                            }
+                            .frame(width: 180)
+                        }
                     }
 
-                    Picker("Contract Type", selection: $viewModel.contractType) {
-                        Text("DIGIT UNDER").tag("DIGITUNDER")
-                        Text("DIGIT OVER").tag("DIGITOVER")
-                        Text("RISE (CALL)").tag("CALL")
-                        Text("FALL (PUT)").tag("PUT")
-                        Text("DIGIT MATCH").tag("DIGITMATCH")
-                        Text("DIGIT DIFF").tag("DIGITDIFF")
+                    settingsCard("Trade Preview", systemImage: "doc.text.magnifyingglass") {
+                        tradeSummaryRow
                     }
 
-                    HStack {
-                        Text("Stake Amount ($)")
-                        Spacer()
-                        TextField("Amount", value: $viewModel.amount, format: .number)
-                            .multilineTextAlignment(.trailing)
-                            .keyboardTypeCompat(.decimalPad)
-                            .frame(minWidth: 70)
-                    }
-
-                    if viewModel.contractType.contains("DIGIT") {
-                        Stepper(value: $viewModel.prediction, in: 0...9) {
+                    settingsCard("Execution", systemImage: "bolt.fill") {
+                        Button(action: { viewModel.executeTrade() }) {
                             HStack {
-                                Text("Prediction Digit")
                                 Spacer()
-                                Text("\(viewModel.prediction)")
-                                    .fontWeight(.bold)
-                                    .foregroundColor(Theme.brandStart)
+                                if viewModel.isSubmitting {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "bolt.fill")
+                                    Text("Execute Manual Trade").fontWeight(.bold)
+                                }
+                                Spacer()
                             }
+                            .padding(.vertical, 10)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Theme.profit)
+                        .disabled(viewModel.isSubmitting)
+
+                        if let result = viewModel.lastResult {
+                            Text(result)
+                                .font(.caption)
+                                .textSelection(.enabled)
+                                .foregroundColor(Theme.profit)
+                        }
+
+                        if let err = viewModel.errorMessage {
+                            ErrorBanner(err)
                         }
                     }
-
-                    HStack {
-                        Text("Duration (Ticks)")
-                        Spacer()
-                        Stepper("\(viewModel.duration) t", value: $viewModel.duration, in: 1...10)
-                            .fixedSize()
-                    }
-                } header: {
-                    Label("Trade Configuration", systemImage: "slider.horizontal.3")
                 }
-
-                Section {
-                    tradeSummaryRow
-                }
-
-                Section {
-                    Button(action: { viewModel.executeTrade() }) {
-                        HStack {
-                            Spacer()
-                            if viewModel.isSubmitting {
-                                ProgressView().progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            } else {
-                                Image(systemName: "bolt.fill")
-                                Text("Execute Manual Trade").fontWeight(.bold)
-                            }
-                            Spacer()
-                        }
-                    }
-                    .foregroundColor(.white)
-                    .listRowBackground(
-                        LinearGradient(colors: [Theme.profit, Theme.profit.opacity(0.8)], startPoint: .leading, endPoint: .trailing)
-                    )
-                    .disabled(viewModel.isSubmitting)
-                }
-
-                if let result = viewModel.lastResult {
-                    Section {
-                        Label(result, systemImage: "checkmark.circle.fill")
-                            .font(.caption)
-                            .foregroundColor(Theme.profit)
-                    } header: {
-                        Text("Execution Output")
-                    }
-                }
-
-                if let err = viewModel.errorMessage {
-                    Section {
-                        ErrorBanner(err)
-                            .listRowInsets(EdgeInsets())
-                            .listRowBackground(Color.clear)
-                    }
-                }
+                .padding(20)
+                .frame(maxWidth: 900, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
-            .navigationTitle("Manual Options")
+            .textSelection(.enabled)
+            .background(Theme.pageBackground.ignoresSafeArea())
+            .navigationTitle("Manual Trade")
         }
     }
-
     private var tradeSummaryRow: some View {
         HStack(spacing: 10) {
             Image(systemName: "doc.text.magnifyingglass")
                 .foregroundColor(Theme.info)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text("\(viewModel.contractType) · \(viewModel.symbol)")
-                    .font(.caption)
+                    .font(.subheadline)
                     .fontWeight(.semibold)
-                Text("Stake $\(String(format: "%.2f", viewModel.amount)) for \(viewModel.duration)t in \(viewModel.currency)")
-                    .font(.caption2)
+                Text("Stake $\(String(format: "%.2f", viewModel.amount)) · \(viewModel.duration)t · \(viewModel.currency)")
+                    .font(.caption)
                     .foregroundColor(.secondary)
+                if viewModel.contractType.contains("DIGIT") {
+                    Text("Prediction: \(viewModel.prediction)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
             Spacer(minLength: 0)
+        }
+    }
+
+    private func settingsCard<Content: View>(_ title: String, systemImage: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label(title, systemImage: systemImage).font(.headline)
+            content()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Theme.cornerRadiusLarge, style: .continuous).fill(Theme.cardBackground(.light)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cornerRadiusLarge, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 1))
+    }
+
+    private func editableRow<Content: View>(_ title: String, @ViewBuilder control: () -> Content) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            Text(title).frame(minWidth: 180, alignment: .leading)
+            Spacer(minLength: 8)
+            control()
         }
     }
 }

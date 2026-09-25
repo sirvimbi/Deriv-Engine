@@ -329,14 +329,20 @@ class DerivClient:
     def unsubscribe_contract(self, contract_id: int):
         self.contract_callbacks.pop(contract_id, None)
 
-    async def get_statement(self, limit: int = 50) -> list:
-        res = await self.send_request({"statement": 1, "description": 1, "limit": limit})
+    async def get_statement(self, limit: int = 50, date_from: Optional[int] = None) -> list:
+        payload = {"statement": 1, "description": 1, "limit": limit}
+        if date_from:
+            payload["date_from"] = int(date_from)
+        res = await self.send_request(payload)
         if "error" in res:
             raise Exception(res["error"].get("message", "Failed to fetch statement"))
         return res.get("statement", {}).get("transactions", [])
 
-    async def get_profit_table(self, limit: int = 50) -> list:
-        res = await self.send_request({"profit_table": 1, "description": 1, "limit": limit})
+    async def get_profit_table(self, limit: int = 50, date_from: Optional[int] = None) -> list:
+        payload = {"profit_table": 1, "limit": limit}
+        if date_from:
+            payload["date_from"] = int(date_from)
+        res = await self.send_request(payload)
         if "error" in res:
             raise Exception(res["error"].get("message", "Failed to fetch profit table"))
         return res.get("profit_table", {}).get("transactions", [])

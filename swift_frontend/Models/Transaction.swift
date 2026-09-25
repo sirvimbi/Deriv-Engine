@@ -10,6 +10,8 @@ public struct Transaction: Codable, Identifiable {
     public let contract_id: Int?
     public let transaction_id: Int?
     public let action: String?
+    public let action_type: String?
+    public let payout: Double?
     public let amount: Double?
     public let balance_after: Double?
     public let transaction_time: Int?

@@ -104,18 +104,29 @@ async def place_manual_trade(req: ManualTradeRequest):
             currency=req.currency
         )
         await client.disconnect()
+        if not bot.session_start_epoch:
+            import time
+            bot.session_start_epoch = int(time.time())
+        await bot.status_broadcast_callback("history_refresh", {"reason": "manual_trade"})
         return {"status": "success", "contract": buy_res}
     except Exception as e:
         await client.disconnect()
         raise HTTPException(status_code=400, detail=f"Manual trade failed: {str(e)}")
 
+@app.get("/api/history/session")
+def get_history_session():
+    return {
+        "started_at": bot.session_start_epoch or None,
+        "active": bool(bot.session_start_epoch)
+    }
+
 @app.get("/api/history/statement")
 async def get_statement(limit: int = 50, token: str = None):
     api_token = token or bot.config.api_token
-    client = DerivClient(app_id=bot.config.app_id)
+    client = DerivClient(app_id=bot.config.app_id, account_type=bot.config.account_type)
     try:
         await client.authorize(api_token)
-        statement = await client.get_statement(limit=limit)
+        statement = await client.get_statement(limit=limit, date_from=bot.session_start_epoch or None)
         await client.disconnect()
         return {"status": "success", "transactions": statement}
     except Exception as e:
@@ -125,10 +136,10 @@ async def get_statement(limit: int = 50, token: str = None):
 @app.get("/api/history/profit-table")
 async def get_profit_table(limit: int = 50, token: str = None):
     api_token = token or bot.config.api_token
-    client = DerivClient(app_id=bot.config.app_id)
+    client = DerivClient(app_id=bot.config.app_id, account_type=bot.config.account_type)
     try:
         await client.authorize(api_token)
-        profit_table = await client.get_profit_table(limit=limit)
+        profit_table = await client.get_profit_table(limit=limit, date_from=bot.session_start_epoch or None)
         await client.disconnect()
         return {"status": "success", "transactions": profit_table}
     except Exception as e:
@@ -138,7 +149,7 @@ async def get_profit_table(limit: int = 50, token: str = None):
 @app.get("/api/account/balance")
 async def get_account_balance(token: str = None):
     api_token = token or bot.config.api_token
-    client = DerivClient(app_id=bot.config.app_id)
+    client = DerivClient(app_id=bot.config.app_id, account_type=bot.config.account_type)
     try:
         await client.authorize(api_token)
         balance = await client.get_balance()

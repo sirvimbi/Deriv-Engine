@@ -26,6 +26,7 @@ class TradingConfig(BaseModel):
     duration_unit: str = Field(default="t", description="Duration Unit ('t' for ticks, 's' for seconds)")
     currency: str = Field(default="USD", description="Currency Code")
     recovery_wins_required: int = Field(default=2, description="Consecutive Wins Required to Reset Stake After Recovery")
+    contract_type_mode: str = Field(default="BOTH", description="Allowed digit contract types: DIGITUNDER, DIGITOVER, or BOTH")
     account_type: str = Field(default="demo", description="Deriv account type: demo or real")
 
 class BotStatus(BaseModel):

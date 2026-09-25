@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 public struct DashboardView: View {
     @StateObject private var viewModel = DashboardViewModel()
@@ -27,11 +29,22 @@ public struct DashboardView: View {
                     metricsGrid
                     logSection
                 }
-                .padding(Theme.gutter)
+                    .padding(Theme.gutter)
             }
+            .textSelection(.enabled)
             .background(Theme.pageBackground.ignoresSafeArea())
             .navigationTitle("Dashboard")
             .navigationBarTitleDisplayModeCompat()
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button(action: copyAllDashboard) {
+                        Label("Copy All", systemImage: "doc.on.doc")
+                    }
+                    Button(action: exportLogs) {
+                        Label("Export Logs", systemImage: "square.and.arrow.down")
+                    }
+                }
+            }
         }
     }
 
@@ -223,7 +236,7 @@ public struct DashboardView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 6) {
-                        ForEach(viewModel.logs) { log in
+                        ForEach(viewModel.logs.reversed()) { log in
                             HStack(alignment: .top, spacing: 6) {
                                 Text("[\(log.timestamp)]")
                                     .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -241,6 +254,7 @@ public struct DashboardView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(height: 190)
+                .textSelection(.enabled)
                 .background(Color.black.opacity(0.92))
                 .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadiusMedium, style: .continuous))
             }
@@ -266,5 +280,61 @@ private extension View {
         #else
         self
         #endif
+    }
+}
+
+
+private extension DashboardView {
+    func copyAllDashboard() {
+        let status = viewModel.botStatus
+        var lines: [String] = [
+            "DERIV ENGINE BOT SNAPSHOT",
+            "Status: \(status.is_running ? "RUNNING" : "STOPPED")",
+            "Market: \(status.config.symbol)",
+            "Account: \(status.config.account_type.uppercased())",
+            "Contract Mode: \(status.config.contract_type_mode)",
+            String(format: "Total Profit: $%.2f", status.total_profit),
+            "Runs: \(status.runs)",
+            "Wins: \(status.total_wins)",
+            "Losses: \(status.total_losses)",
+            String(format: "Win Rate: %.2f%%", status.win_rate),
+            String(format: "Current Stake: $%.2f", status.current_stake),
+            "Current Prediction: \(status.current_predict)",
+            "Loss Streak: \(status.loss_streak)",
+            "Recovery Wins: \(status.recovery_win_count)/\(status.config.recovery_wins_required)",
+            "Take Profit: $\(status.config.take_profit)",
+            "Stop Loss: $\(status.config.stop_loss)",
+            "Max Runs: \(status.config.max_runs)",
+            "Max Loss Streak: \(status.config.max_loss_streak)",
+            "",
+            "EXECUTION LOGS"
+        ]
+        lines.append(contentsOf: viewModel.logs.map { "[\($0.timestamp)] [\($0.level.uppercased())] \($0.message)" })
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+    }
+
+    func exportLogs() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "deriv-execution-logs.csv"
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.canCreateDirectories = true
+        if panel.runModal() == .OK, let url = panel.url {
+            let header = "Timestamp,Level,Message\n"
+            let rows = viewModel.logs.map {
+                "\($0.timestamp),\($0.level.csvEscaped),\($0.message.csvEscaped)"
+            }.joined(separator: "\n")
+            do {
+                try (header + rows + "\n").write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                print("Failed to export logs: \(error.localizedDescription)")
+            }
+        }
+    }
+}
+
+private extension String {
+    var csvEscaped: String {
+        return "\"" + replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 }
