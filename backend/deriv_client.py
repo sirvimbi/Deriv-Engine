@@ -320,6 +320,17 @@ class DerivClient:
             self.authorized = False
             raise
 
+    async def subscribe_balance(self, callback: Callable):
+        """Subscribe to Deriv balance updates on the authenticated WebSocket."""
+        if callback not in self.balance_callbacks:
+            self.balance_callbacks.append(callback)
+        response = await self.send_request({"balance": 1, "subscribe": 1})
+        if "error" in response:
+            if callback in self.balance_callbacks:
+                self.balance_callbacks.remove(callback)
+            raise Exception(response["error"].get("message", "Balance subscription failed"))
+        return response
+
     async def subscribe_ticks(self, symbol: str, callback: Callable):
         if callback not in self.tick_callbacks:
             self.tick_callbacks.append(callback)
