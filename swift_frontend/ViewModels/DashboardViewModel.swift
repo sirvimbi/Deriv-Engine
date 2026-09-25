@@ -81,9 +81,10 @@ public class DashboardViewModel: ObservableObject {
 
     private func refreshEquity() async {
         do {
-            let balance = try await APIService.shared.getAccountBalance()
             guard !Task.isCancelled else { return }
-            botStatus.equity = balance
+            let latestStatus = try await APIService.shared.getBotStatus()
+            guard !Task.isCancelled else { return }
+            self.botStatus = latestStatus
         } catch {
             // WebSocket balance subscription remains the primary live path.
             // Polling is a recovery path for dropped/misordered WS events.
@@ -122,5 +123,21 @@ public class DashboardViewModel: ObservableObject {
             }
             isConnecting = false
         }
+    }
+
+    /// Persists the current configuration to storage.
+    func saveConfig() {
+        // TODO: Replace with your real persistence mechanism (e.g., SwiftData, UserDefaults, Keychain, or a repository/service).
+        // Example placeholder: notify a config store or write to disk.
+        // configStore.save(config)
+    }
+
+    /// Refreshes any data or UI that depends on the active account.
+    func refreshAfterAccountSwitch() {
+        // TODO: Replace with your real refresh logic.
+        // Examples: re-authenticate endpoints, reload balances, refresh open positions, and update UI bindings.
+        // reloadBalances()
+        // reloadOpenPositions()
+        // reconnectIfNeeded()
     }
 }
