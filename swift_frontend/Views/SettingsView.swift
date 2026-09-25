@@ -272,9 +272,9 @@ private extension SettingsView {
 // SwiftUI's own TextField on macOS has long-standing quirks (bindings that
 // only update on Return, cursor jumps, etc.), so these fields wrap NSTextField
 // directly for correct native typing/selection behavior. Each field now also
-// reports every keystroke back through the binding (controlTextDidChange), so
-// other parts of the UI that read these values (e.g. live previews) stay in
-// sync while you type — not just after you click away.
+// commits the value when editing ends. This deliberately keeps SwiftUI state
+// out of AppKit's per-keystroke editing cycle, which avoids responder-chain
+// and "Publishing changes from within view updates" problems on macOS 26.
 
 struct NativeEditableField: NSViewRepresentable {
     @Binding var text: String
@@ -315,8 +315,9 @@ struct NativeEditableField: NSViewRepresentable {
         }
 
         func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            binding.wrappedValue = field.stringValue
+            // Keep editing entirely inside AppKit. Do not publish SwiftUI state
+            // on every keystroke; doing so can trigger a representable update
+            // while NSTextField is editing and can break the responder chain.
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
@@ -334,8 +335,11 @@ struct NativeEditableField: NSViewRepresentable {
 final class FocusableTextField: NSTextField {
     override var acceptsFirstResponder: Bool { true }
     override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
         super.mouseDown(with: event)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.window?.makeFirstResponder(self)
+        }
     }
 }
 
@@ -381,11 +385,8 @@ struct NativeNumberField: NSViewRepresentable {
         func controlTextDidBeginEditing(_ notification: Notification) { isEditing = true }
 
         func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            let normalized = field.stringValue.replacingOccurrences(of: ",", with: ".")
-            if let parsed = Double(normalized) {
-                binding.wrappedValue = parsed
-            }
+            // Intentionally do not write through the SwiftUI binding here.
+            // AppKit owns the live edit until focus leaves the field.
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
@@ -446,10 +447,8 @@ struct NativeIntegerField: NSViewRepresentable {
         func controlTextDidBeginEditing(_ notification: Notification) { isEditing = true }
 
         func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            if let parsed = Int(field.stringValue.filter { $0.isNumber || $0 == "-" }) {
-                binding.wrappedValue = min(max(parsed, range.lowerBound), range.upperBound)
-            }
+            // Intentionally do not publish on every keystroke. This permits
+            // select-all, delete, arrow keys and normal AppKit text editing.
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
