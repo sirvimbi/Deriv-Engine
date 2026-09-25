@@ -149,7 +149,15 @@ class TradingBot:
         self.start_time_epoch = time.time()
         self.stop_reason = None
 
-        self.add_log("success", f"Bot started successfully on market {self.config.symbol}. Base stake: ${self.stake} | Recovery target={max(1, self.config.recovery_wins_required)} wins | Recovery prediction digit={self.config.recovery_win_predict_digit} | Loss prediction digit={self.config.loss_predict_digit}")
+        self.add_log(
+            "success",
+            f"Bot started | Build={ENGINE_BUILD} | Market={self.config.symbol} | "
+            f"Mode={self.config.contract_type_mode} | Base stake=${self.stake:.2f} | "
+            f"Under trigger={self.config.under_trigger_digit} | Over trigger={self.config.over_trigger_digit} | "
+            f"Win prediction={self.config.win_predict_digit} | Loss prediction={self.config.loss_predict_digit} | "
+            f"Recovery prediction={self.config.recovery_win_predict_digit} | "
+            f"Recovery target={max(1, self.config.recovery_wins_required)} wins"
+        )
         if self.status_broadcast_callback:
             try:
                 await self.status_broadcast_callback("history_reset", {"started_at": int(self.start_time_epoch)})
@@ -275,9 +283,10 @@ class TradingBot:
 
         self.add_log(
             "info",
-            f"Executing {trade_contract_type} trade | Stake: ${trade_stake:.2f} | "
-            f"Target Digit Prediction: {trade_prediction} | "
-            f"Recovery Contract: {self.active_contract_type or trade_contract_type}"
+            f"EXECUTION REQUEST | type={trade_contract_type} | barrier={trade_prediction} | "
+            f"stake=${trade_stake:.2f} | recovery={self.in_recovery_cycle} | phase={self.recovery_phase} | "
+            f"recovery_wins={self.recovery_win_count}/{max(1, self.config.recovery_wins_required)} | "
+            f"locked_contract={self.active_contract_type or trade_contract_type}"
         )
 
         try:
