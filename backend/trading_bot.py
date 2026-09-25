@@ -11,7 +11,7 @@ logger = logging.getLogger("TradingBot")
 class TradingBot:
     def __init__(self, config: TradingConfig):
         self.config = config
-        self.client = DerivClient(app_id=config.app_id)
+        self.client = DerivClient(app_id=config.app_id, account_type=config.account_type)
         
         # State variables
         self.is_running = False
@@ -62,6 +62,8 @@ class TradingBot:
 
     def update_config(self, new_config: TradingConfig):
         self.config = new_config
+        self.client.app_id = new_config.app_id
+        self.client.account_type = new_config.account_type
         if not self.is_running:
             self.stake = new_config.base_stake
             self.predict = new_config.win_predict_digit
