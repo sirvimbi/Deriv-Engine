@@ -47,6 +47,7 @@ class TradingBot:
         
         self.last_digit: Optional[int] = None
         self.last_tick_quote: Optional[float] = None
+        self.last_tick_pip_size: int = 2
         self.start_time_epoch = time.time()
         self.session_start_epoch = 0
         self.stop_reason: Optional[str] = None
@@ -212,8 +213,9 @@ class TradingBot:
         self.last_tick_quote = float(quote)
         
         # Calculate last digit accurately from price representation
-        pip_size = tick_data.get("pip_size", 2)
-        quote_str = f"{self.last_tick_quote:.{pip_size}f}"
+        pip_size = int(tick_data.get("pip_size", 2) or 2)
+        self.last_tick_pip_size = max(0, pip_size)
+        quote_str = f"{self.last_tick_quote:.{self.last_tick_pip_size}f}"
         self.last_digit = int(quote_str[-1])
 
         # Broadcast live tick to frontend
@@ -248,8 +250,18 @@ class TradingBot:
         over_allowed = mode in ("DIGITOVER", "BOTH")
 
         if under_allowed and self.last_digit == self.config.under_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
+            self.add_log(
+                "info",
+                f"ENTRY TRIGGER HIT | type=DIGITUNDER | trigger_digit={self.last_digit} | "
+                f"barrier={self.config.win_predict_digit} | stake=${self.stake:.2f}"
+            )
             self._schedule_trade("DIGITUNDER")
         elif over_allowed and self.last_digit == self.config.over_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
+            self.add_log(
+                "info",
+                f"ENTRY TRIGGER HIT | type=DIGITOVER | trigger_digit={self.last_digit} | "
+                f"barrier={self.config.win_predict_digit} | stake=${self.stake:.2f}"
+            )
             self._schedule_trade("DIGITOVER")
 
     def _schedule_trade(self, contract_type: str):
@@ -380,6 +392,29 @@ class TradingBot:
             self.add_log("error", f"Error placing trade: {str(e)}")
             self.is_trade_in_progress = False
 
+    @staticmethod
+    def _extract_last_digit_from_spot(spot: Any, pip_size: int = 2) -> Optional[int]:
+        """Extract the actual settlement digit without losing trailing zeros."""
+        if spot is None:
+            return None
+
+        if isinstance(spot, str):
+            text = spot.strip()
+            if not text:
+                return None
+            # Deriv's current API returns exit_spot as string|number. When it is
+            # a string, preserve trailing decimal zeros exactly as returned.
+            digits = [char for char in text if char.isdigit()]
+            return int(digits[-1]) if digits else None
+
+        try:
+            precision = max(0, int(pip_size))
+            formatted = f"{float(spot):.{precision}f}"
+            digits = [char for char in formatted if char.isdigit()]
+            return int(digits[-1]) if digits else None
+        except (TypeError, ValueError):
+            return None
+
     async def _handle_contract_finished(
         self,
         poc: Dict[str, Any],
@@ -396,9 +431,71 @@ class TradingBot:
             )
             return
 
-        profit = float(poc.get("profit", 0.0))
-        status = poc.get("status")  # "won" or "lost"
+        profit_raw = poc.get("profit", 0.0)
+        profit = float(profit_raw or 0.0)
+        status = str(poc.get("status") or "").lower()  # "won" or "lost"
+
+        entry_spot = poc.get("entry_spot")
+        exit_spot = poc.get("exit_spot")
+        exit_digit = self._extract_last_digit_from_spot(
+            exit_spot,
+            self.last_tick_pip_size
+        )
+
+        buy_price_raw = poc.get("buy_price")
+        try:
+            settlement_buy_price = float(buy_price_raw)
+        except (TypeError, ValueError):
+            settlement_buy_price = float(trade_stake)
+
         is_win = (profit > 0 or status == "won")
+
+        # Deriv is authoritative for the financial result. Independently
+        # derive the final digit from the actual exit spot so every digit
+        # contract can be audited instead of relying only on profit/status.
+        expected_win: Optional[bool] = None
+        contract_upper = str(trade_contract_type).upper()
+        if exit_digit is not None:
+            if contract_upper == "DIGITOVER":
+                expected_win = exit_digit > int(trade_prediction)
+            elif contract_upper == "DIGITUNDER":
+                expected_win = exit_digit < int(trade_prediction)
+
+        settlement_parts = [
+            f"CONTRACT SETTLED | id={contract_id}",
+            f"type={trade_contract_type}",
+            f"barrier={trade_prediction}",
+            f"entry_spot={entry_spot if entry_spot is not None else 'n/a'}",
+            f"exit_spot={exit_spot if exit_spot is not None else 'n/a'}",
+            f"exit_digit={exit_digit if exit_digit is not None else 'n/a'}",
+            f"status={status or 'n/a'}",
+            f"buy_price=${settlement_buy_price:.2f}",
+            f"stake=${trade_stake:.2f}",
+            f"P/L=${profit:+.2f}"
+        ]
+        self.add_log("info", " | ".join(settlement_parts))
+
+        if expected_win is None:
+            self.add_log(
+                "warn",
+                f"SETTLEMENT AUDIT | id={contract_id} | Unable to derive exit digit "
+                f"from exit_spot={exit_spot!r}."
+            )
+        elif expected_win != is_win:
+            self.add_log(
+                "error",
+                f"SETTLEMENT MISMATCH | id={contract_id} | type={trade_contract_type} | "
+                f"barrier={trade_prediction} | exit_digit={exit_digit} | "
+                f"DerivStatus={status or 'n/a'} | DerivWin={is_win} | "
+                f"DigitRuleWin={expected_win}"
+            )
+        else:
+            self.add_log(
+                "info",
+                f"SETTLEMENT VERIFIED | id={contract_id} | type={trade_contract_type} | "
+                f"barrier={trade_prediction} | exit_digit={exit_digit} | "
+                f"result={'WIN' if is_win else 'LOSS'}"
+            )
 
         self.total_profit += profit
         self.runs += 1
