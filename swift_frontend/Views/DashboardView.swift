@@ -89,7 +89,7 @@ public struct DashboardView: View {
                 .padding(.vertical, 12)
                 .background(
                     RoundedRectangle(cornerRadius: Theme.cornerRadiusMedium, style: .continuous)
-                        .fill(.white.opacity(viewModel.botStatus.is_running ? 0.22 : 0.95))
+                        .fill(viewModel.botStatus.is_running ? Color.red.opacity(0.92) : .white.opacity(0.95))
                 )
                 .foregroundColor(viewModel.botStatus.is_running ? .white : Theme.brandStart)
             }
@@ -160,6 +160,7 @@ public struct DashboardView: View {
                 if let equity = viewModel.botStatus.equity {
                     Text(String(format: "$%.2f", equity))
                         .font(.system(size: 24, weight: .heavy, design: .rounded))
+                        .foregroundColor(Theme.profit)
                         .contentTransition(.numericText())
                         .animation(.easeInOut(duration: 0.25), value: equity)
                 } else {
