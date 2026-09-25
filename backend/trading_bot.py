@@ -358,10 +358,19 @@ class TradingBot:
 
             await self.client.subscribe_contract(contract_id, _on_contract_update)
             
-            # Timeout safety after 30 seconds
+            # Timeout safety after 30 seconds. A settlement callback may
+            # have completed the trade immediately before the wait timed out,
+            # or the bot may have stopped because the settlement triggered a
+            # risk limit. In either case this is a normal monitor shutdown,
+            # not a failed contract.
             try:
                 await asyncio.wait_for(done_event.wait(), timeout=30.0)
             except asyncio.TimeoutError:
+                if contract_id in self.settled_contract_ids or not self.is_running:
+                    self.client.unsubscribe_contract(contract_id)
+                    self.is_trade_in_progress = False
+                    return
+                self.client.unsubscribe_contract(contract_id)
                 self.add_log("error", f"Contract #{contract_id} status timeout.")
                 self.is_trade_in_progress = False
 
