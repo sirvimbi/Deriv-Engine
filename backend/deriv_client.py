@@ -16,8 +16,8 @@ class DerivClient:
     REST_BASE_URL = "https://api.derivws.com"
     PUBLIC_WS_URL = "wss://ws.binaryws.com/websockets/v3"
 
-    def __init__(self, app_id: int = 0, account_type: str = "demo"):
-        self.app_id = app_id
+    def __init__(self, app_id: str = "", account_type: str = "demo"):
+        self.app_id = str(app_id).strip()
         self.account_type = account_type if account_type in ("demo", "real") else "demo"
         self.ws: Optional[Any] = None
         self.ws_url: Optional[str] = None
@@ -41,7 +41,7 @@ class DerivClient:
             "Content-Type": "application/json"
         }
         if self.app_id:
-            headers["Deriv-App-ID"] = str(self.app_id)
+            headers["Deriv-App-ID"] = self.app_id
         return headers
 
     def _request_json(self, method: str, path: str, token: str) -> Dict[str, Any]:
@@ -70,7 +70,9 @@ class DerivClient:
         if not token or not token.strip():
             raise ValueError("Deriv API token is required.")
         if not self.app_id:
-            raise ValueError("A current Deriv App ID is required. The legacy App ID 1089 is not valid for the current authenticated API.")
+            raise ValueError(
+                "A current Deriv App ID is required. Enter the App ID exactly as shown in your Deriv Developer Dashboard."
+            )
 
         accounts = await asyncio.to_thread(
             self._request_json,
@@ -200,10 +202,7 @@ class DerivClient:
                 if req_id is not None and req_id in self.pending_requests:
                     future = self.pending_requests[req_id]
                     if not future.done():
-                        if "error" in data:
-                            future.set_result(data)
-                        else:
-                            future.set_result(data)
+                        future.set_result(data)
 
                 if msg_type == "tick":
                     tick = data.get("tick")
