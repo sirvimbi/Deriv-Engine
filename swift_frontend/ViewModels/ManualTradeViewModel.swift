@@ -25,7 +25,7 @@ public class ManualTradeViewModel: ObservableObject {
                     amount: amount,
                     duration: duration,
                     durationUnit: durationUnit,
-                    prediction: prediction,
+                    prediction: contractType.contains("DIGIT") ? prediction : nil,
                     currency: currency
                 )
                 self.lastResult = "Contract Executed Successfully: \(res)"
