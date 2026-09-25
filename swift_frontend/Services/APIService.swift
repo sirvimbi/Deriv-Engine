@@ -21,6 +21,21 @@ public class APIService {
         return try JSONDecoder().decode(BackendRuntime.self, from: data)
     }
 
+    public func getDigitSymbols() async throws -> [DerivSymbol] {
+        guard let url = URL(string: "(baseURL)/api/markets/digit-symbols") else {
+            throw URLError(.badURL)
+        }
+        let (data, response) = try await URLSession.shared.data(from: url)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            let detail = String(data: data, encoding: .utf8) ?? "Failed to load Deriv symbols"
+            throw NSError(domain: "DerivSymbols", code: http.statusCode, userInfo: [
+                NSLocalizedDescriptionKey: detail
+            ])
+        }
+        let result = try JSONDecoder().decode(DigitSymbolsResponse.self, from: data)
+        return result.symbols
+    }
+
     public func getConfig() async throws -> TradingConfig {
         guard let url = URL(string: "\(baseURL)/api/config") else {
             throw URLError(.badURL)
@@ -190,4 +205,10 @@ public class APIService {
         }
         return [:]
     }
+}
+
+
+private struct DigitSymbolsResponse: Codable {
+    let status: String
+    let symbols: [DerivSymbol]
 }
