@@ -67,6 +67,17 @@ public class DashboardViewModel: ObservableObject {
         }
     }
 
+    public func clearLogs() {
+        Task {
+            do {
+                try await APIService.shared.clearBotLogs()
+                logs.removeAll()
+            } catch {
+                errorMessage = "Unable to clear execution logs: \(error.localizedDescription)"
+            }
+        }
+    }
+
     public func toggleBot() {
         Task {
             isConnecting = true
