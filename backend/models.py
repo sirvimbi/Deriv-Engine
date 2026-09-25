@@ -50,6 +50,7 @@ class BotStatus(BaseModel):
     duration_minutes: float
     stop_reason: Optional[str]
     config: TradingConfig
+    equity: Optional[float] = None
 
 class ManualTradeRequest(BaseModel):
     symbol: str = "R_100"
