@@ -6,7 +6,10 @@ class TradingConfig(BaseModel):
         default="",
         description="Deriv API Access Token"
     )
-    app_id: int = Field(default=0, description="Current Deriv App ID registered on developers.deriv.com")
+    app_id: str = Field(
+        default="",
+        description="Current Deriv App ID registered on developers.deriv.com"
+    )
     symbol: str = Field(default="R_100", description="Market Symbol (e.g. R_100)")
     base_stake: float = Field(default=30.0, description="Base Stake Amount")
     max_stake: float = Field(default=1000.0, description="Maximum Stake Limit")
@@ -49,7 +52,7 @@ class BotStatus(BaseModel):
 
 class ManualTradeRequest(BaseModel):
     symbol: str = "R_100"
-    contract_type: str = "DIGITUNDER"  # DIGITUNDER, DIGITOVER, CALL, PUT, etc.
+    contract_type: str = "DIGITUNDER"
     amount: float = 10.0
     duration: int = 1
     duration_unit: str = "t"
@@ -58,7 +61,7 @@ class ManualTradeRequest(BaseModel):
 
 class LogMessage(BaseModel):
     timestamp: str
-    level: str  # "info", "success", "error", "warn"
+    level: str
     message: str
 
 class TransactionItem(BaseModel):
