@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 public struct DashboardView: View {
     @StateObject private var viewModel = DashboardViewModel()
