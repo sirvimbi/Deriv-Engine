@@ -14,7 +14,7 @@ class DerivClient:
     """Deriv WebSocket client using the current REST OTP authentication flow."""
 
     REST_BASE_URL = "https://api.derivws.com"
-    PUBLIC_WS_URL = "wss://ws.binaryws.com/websockets/v3"
+    PUBLIC_WS_URL = "wss://api.derivws.com/trading/v1/options/ws/public"
 
     def __init__(self, app_id: str = "", account_type: str = "demo"):
         self.app_id = str(app_id).strip()
@@ -34,9 +34,16 @@ class DerivClient:
         self.req_id_counter += 1
         return req_id
 
+    @staticmethod
+    def _normalize_token(token: str) -> str:
+        # Secure text fields and paste operations can introduce surrounding
+        # whitespace/newlines. Do not log or expose the token.
+        return "".join(str(token).split())
+
     def _headers(self, token: str) -> Dict[str, str]:
+        normalized = self._normalize_token(token)
         headers = {
-            "Authorization": f"Bearer {token.strip()}",
+            "Authorization": f"Bearer {normalized}",
             "Accept": "application/json",
             "Content-Type": "application/json"
         }
@@ -59,15 +66,35 @@ class DerivClient:
 
         if response.status_code >= 400:
             errors = data.get("errors") or []
-            message = errors[0].get("message") if errors and isinstance(errors[0], dict) else None
-            if not message:
-                message = response.text.strip() or f"HTTP {response.status_code}"
-            raise RuntimeError(f"Deriv REST authentication failed ({response.status_code}): {message}")
+            error = errors[0] if errors and isinstance(errors[0], dict) else {}
+            message = error.get("message") or response.text.strip() or f"HTTP {response.status_code}"
+            code = error.get("code")
+
+            if response.status_code == 401:
+                if code in {"Unauthorized", "InvalidToken", "AuthenticationError"} or "token" in message.lower():
+                    raise RuntimeError(
+                        "Deriv rejected the authorization token (401). "
+                        "Generate a new Personal Access Token for this Deriv App in the Developer Dashboard "
+                        "with the trade scope, then replace the token in Settings. "
+                        "Do not use a legacy API token or an expired OAuth access token."
+                    )
+                raise RuntimeError(
+                    f"Deriv rejected authentication (401): {message}"
+                )
+
+            if response.status_code == 403:
+                raise RuntimeError(
+                    "Deriv accepted the token but denied access (403). "
+                    "Ensure the token has the trade scope and belongs to the selected Deriv App."
+                )
+
+            raise RuntimeError(f"Deriv REST request failed ({response.status_code}): {message}")
 
         return data
 
     async def _get_authenticated_ws_url(self, token: str) -> Dict[str, Any]:
-        if not token or not token.strip():
+        normalized_token = self._normalize_token(token)
+        if not normalized_token:
             raise ValueError("Deriv API token is required.")
         if not self.app_id:
             raise ValueError(
@@ -78,7 +105,7 @@ class DerivClient:
             self._request_json,
             "GET",
             "/trading/v1/options/accounts",
-            token
+            normalized_token
         )
 
         data = accounts.get("data", [])
@@ -93,7 +120,7 @@ class DerivClient:
         if not matching:
             raise RuntimeError(
                 f"No active {self.account_type} Options trading account was returned by Deriv. "
-                "The API token may be legacy, missing the trade scope, or the account may not be migrated."
+                "The token may not have access to Options trading or the account may not be migrated."
             )
 
         account = matching[0]
@@ -105,7 +132,7 @@ class DerivClient:
             self._request_json,
             "POST",
             f"/trading/v1/options/accounts/{account_id}/otp",
-            token
+            normalized_token
         )
 
         otp_data = otp_response.get("data", {})
@@ -113,10 +140,7 @@ class DerivClient:
         if not ws_url:
             raise RuntimeError("Deriv OTP response did not contain a WebSocket URL.")
 
-        return {
-            "url": ws_url,
-            "account": account
-        }
+        return {"url": ws_url, "account": account}
 
     async def _connect_url(self, url: str):
         ssl_context = ssl.create_default_context(cafile=certifi.where())
@@ -240,11 +264,12 @@ class DerivClient:
 
     async def authorize(self, token: str) -> Dict[str, Any]:
         """Authenticate by REST Bearer token -> account lookup -> one-time WebSocket OTP."""
-        if not token or not token.strip():
+        normalized_token = self._normalize_token(token)
+        if not normalized_token:
             raise ValueError("Deriv API token is required.")
 
         try:
-            auth = await self._get_authenticated_ws_url(token)
+            auth = await self._get_authenticated_ws_url(normalized_token)
             if self.ws:
                 await self.disconnect()
 
@@ -273,16 +298,7 @@ class DerivClient:
         self.tick_callbacks.clear()
         return response
 
-    async def buy_contract(
-        self,
-        symbol: str,
-        contract_type: str,
-        amount: float,
-        duration: int = 1,
-        duration_unit: str = "t",
-        barrier: Optional[int] = None,
-        currency: str = "USD"
-    ) -> Dict[str, Any]:
+    async def buy_contract(self, symbol: str, contract_type: str, amount: float, duration: int = 1, duration_unit: str = "t", barrier: Optional[int] = None, currency: str = "USD") -> Dict[str, Any]:
         params = {
             "amount": amount,
             "basis": "stake",
@@ -295,13 +311,7 @@ class DerivClient:
         if barrier is not None:
             params["barrier"] = str(barrier)
 
-        request = {
-            "buy": 1,
-            "price": amount,
-            "parameters": params
-        }
-
-        response = await self.send_request(request)
+        response = await self.send_request({"buy": 1, "price": amount, "parameters": params})
         if "error" in response:
             raise Exception(response["error"].get("message", "Contract purchase failed"))
         return response.get("buy", {})
@@ -311,12 +321,7 @@ class DerivClient:
             self.contract_callbacks[contract_id] = []
         if callback not in self.contract_callbacks[contract_id]:
             self.contract_callbacks[contract_id].append(callback)
-
-        response = await self.send_request({
-            "proposal_open_contract": 1,
-            "contract_id": contract_id,
-            "subscribe": 1
-        })
+        response = await self.send_request({"proposal_open_contract": 1, "contract_id": contract_id, "subscribe": 1})
         if "error" in response:
             raise Exception(response["error"].get("message", "Contract subscription failed"))
         return response
@@ -325,21 +330,13 @@ class DerivClient:
         self.contract_callbacks.pop(contract_id, None)
 
     async def get_statement(self, limit: int = 50) -> list:
-        res = await self.send_request({
-            "statement": 1,
-            "description": 1,
-            "limit": limit
-        })
+        res = await self.send_request({"statement": 1, "description": 1, "limit": limit})
         if "error" in res:
             raise Exception(res["error"].get("message", "Failed to fetch statement"))
         return res.get("statement", {}).get("transactions", [])
 
     async def get_profit_table(self, limit: int = 50) -> list:
-        res = await self.send_request({
-            "profit_table": 1,
-            "description": 1,
-            "limit": limit
-        })
+        res = await self.send_request({"profit_table": 1, "description": 1, "limit": limit})
         if "error" in res:
             raise Exception(res["error"].get("message", "Failed to fetch profit table"))
         return res.get("profit_table", {}).get("transactions", [])
