@@ -330,7 +330,6 @@ private struct EditableTextField: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let field: NSTextField = isSecure ? EngineSecureTextField() : EngineTextField()
         configureEditor(field, text: text, placeholder: placeholder)
-        field.onCommitHandler = { _ in } // placeholder replaced below
         if let plain = field as? EngineTextField {
             plain.onCommit = { [weak coordinator = context.coordinator] value in coordinator?.commit(value) }
         }
