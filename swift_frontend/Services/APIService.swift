@@ -64,6 +64,16 @@ public class APIService {
         return try JSONDecoder().decode([LogMessage].self, from: data)
     }
 
+    public func getHistorySession() async throws -> Int? {
+        guard let url = URL(string: "\(baseURL)/api/history/session") else {
+            throw URLError(.badURL)
+        }
+        let (data, _) = try await URLSession.shared.data(from: url)
+        struct SessionResponse: Codable { let started_at: Int?; let active: Bool }
+        let response = try JSONDecoder().decode(SessionResponse.self, from: data)
+        return response.active ? response.started_at : nil
+    }
+
     public func fetchStatement(limit: Int = 50, token: String? = nil) async throws -> [Transaction] {
         var components = URLComponents(string: "\(baseURL)/api/history/statement")
         var queryItems = [URLQueryItem(name: "limit", value: "\(limit)")]
@@ -121,7 +131,14 @@ public class APIService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let detail = json["detail"] as? String {
+                throw NSError(domain: "ManualTrade", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: detail])
+            }
+            throw NSError(domain: "ManualTrade", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "Manual trade request failed (HTTP \(http.statusCode))."])
+        }
         if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
             return json
         }
