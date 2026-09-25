@@ -49,9 +49,6 @@ public struct ManualTradeView: View {
                                 .frame(width: 180, height: 26)
                         }
                     }
-                            .frame(width: 180)
-                        }
-                    }
 
                     settingsCard("Trade Preview", systemImage: "doc.text.magnifyingglass") {
                         tradeSummaryRow
