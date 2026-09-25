@@ -69,9 +69,11 @@ public class APIService {
             throw URLError(.badURL)
         }
         let (data, _) = try await URLSession.shared.data(from: url)
-        struct SessionResponse: Codable { let started_at: Int?; let active: Bool }
-        let response = try JSONDecoder().decode(SessionResponse.self, from: data)
-        return response.active ? response.started_at : nil
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let active = json["active"] as? Bool else {
+            return nil
+        }
+        return active ? json["started_at"] as? Int : nil
     }
 
     public func fetchStatement(limit: Int = 50, token: String? = nil) async throws -> [Transaction] {
