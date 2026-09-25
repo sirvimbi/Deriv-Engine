@@ -22,6 +22,21 @@ public class SettingsViewModel: ObservableObject {
         }
     }
 
+    public var digitBarrierRange: ClosedRange<Int> {
+        switch config.contract_type_mode.uppercased() {
+        case "DIGITUNDER": return 1...9
+        case "DIGITOVER": return 0...8
+        default: return 1...8
+        }
+    }
+
+    public func clampDigitBarriersForSelectedMode() {
+        let range = digitBarrierRange
+        config.win_predict_digit = min(max(config.win_predict_digit, range.lowerBound), range.upperBound)
+        config.loss_predict_digit = min(max(config.loss_predict_digit, range.lowerBound), range.upperBound)
+        config.recovery_win_predict_digit = min(max(config.recovery_win_predict_digit, range.lowerBound), range.upperBound)
+    }
+
     public func saveConfig() {
         Task {
             isSaving = true
@@ -33,6 +48,9 @@ public class SettingsViewModel: ObservableObject {
                 if !["DIGITUNDER", "DIGITOVER", "BOTH"].contains(pending.contract_type_mode) {
                     pending.contract_type_mode = "BOTH"
                 }
+                self.clampDigitBarriersForSelectedMode()
+                pending = self.config
+                pending.contract_type_mode = pending.contract_type_mode.uppercased()
                 self.config = try await APIService.shared.updateConfig(pending)
                 saveSuccess = true
             } catch {
