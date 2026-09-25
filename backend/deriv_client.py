@@ -431,6 +431,19 @@ class DerivClient:
         if normalized_amount < Decimal("0.01"):
             raise ValueError("Trade amount must be at least 0.01.")
 
+        # Fail before requesting a proposal when the authenticated account
+        # cannot afford the configured stake. Deriv otherwise returns a
+        # successful proposal and only rejects the subsequent buy, which makes
+        # the execution log look like a transport/trading bug.
+        if self.authorized:
+            balance_response = await self.get_balance()
+            available_balance = Decimal(str(balance_response.get("balance", "0")))
+            if available_balance < normalized_amount:
+                raise ValueError(
+                    f"Insufficient Deriv balance: available={available_balance:.2f} "
+                    f"{currency}, required={normalized_amount:.2f} {currency}."
+                )
+
         proposal_params: Dict[str, Any] = {
             "proposal": 1,
             "amount": float(normalized_amount),
