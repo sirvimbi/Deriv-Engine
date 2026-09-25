@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 public struct SettingsView: View {
     @StateObject private var viewModel = SettingsViewModel()
@@ -79,14 +80,26 @@ public struct SettingsView: View {
     private var credentialsCard: some View {
         settingsCard("Account & Credentials", systemImage: "person.crop.circle.fill") {
             editableRow("Deriv API Token") {
-                SecureField("Paste your Deriv API token", text: $viewModel.config.api_token)
-                    .textFieldStyle(.roundedBorder)
+                NativeEditableField(
+                    text: $viewModel.config.api_token,
+                    placeholder: "Enter your Deriv API token",
+                    isSecure: true
+                )
+                .frame(width: 360, height: 24)
             }
 
             editableRow("App ID") {
-                TextField("App ID", value: $viewModel.config.app_id, format: .number)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 180)
+                NativeEditableField(
+                    text: Binding(
+                        get: { viewModel.config.app_id == 0 ? "" : String(viewModel.config.app_id) },
+                        set: { newValue in
+                            let digits = newValue.filter(\.isNumber)
+                            viewModel.config.app_id = Int(digits) ?? 0
+                        }
+                    ),
+                    placeholder: "Enter current Deriv App ID"
+                )
+                .frame(width: 180, height: 24)
             }
 
             editableRow("Market Symbol") {
@@ -204,19 +217,37 @@ public struct SettingsView: View {
 
     private func numberRow(_ title: String, value: Binding<Double>) -> some View {
         editableRow(title) {
-            TextField(title, value: value, format: .number)
-                .textFieldStyle(.roundedBorder)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 180)
+            NativeEditableField(
+                text: Binding(
+                    get: { String(value.wrappedValue) },
+                    set: { newValue in
+                        let normalized = newValue.replacingOccurrences(of: ",", with: ".")
+                        if let parsed = Double(normalized) {
+                            value.wrappedValue = parsed
+                        } else if normalized.isEmpty {
+                            value.wrappedValue = 0
+                        }
+                    }
+                ),
+                placeholder: title
+            )
+            .frame(width: 180, height: 24)
         }
     }
 
     private func integerRow(_ title: String, value: Binding<Int>) -> some View {
         editableRow(title) {
-            TextField(title, value: value, format: .number)
-                .textFieldStyle(.roundedBorder)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 180)
+            NativeEditableField(
+                text: Binding(
+                    get: { String(value.wrappedValue) },
+                    set: { newValue in
+                        let digits = newValue.filter(\.isNumber)
+                        value.wrappedValue = Int(digits) ?? 0
+                    }
+                ),
+                placeholder: title
+            )
+            .frame(width: 180, height: 24)
         }
     }
 
@@ -234,6 +265,64 @@ public struct SettingsView: View {
                     .frame(minWidth: 32)
             }
             .fixedSize()
+        }
+    }
+}
+
+
+private struct NativeEditableField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    var isSecure: Bool = false
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field: NSTextField = isSecure ? NSSecureTextField() : NSTextField()
+        field.stringValue = text
+        field.placeholderString = placeholder
+        field.isEditable = true
+        field.isSelectable = true
+        field.isEnabled = true
+        field.usesSingleLineMode = true
+        field.lineBreakMode = .byTruncatingTail
+        field.delegate = context.coordinator
+        field.bezelStyle = .roundedBezel
+        field.focusRingType = .default
+        return field
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        if nsView.stringValue != text && !context.coordinator.isEditing {
+            nsView.stringValue = text
+        }
+        nsView.placeholderString = placeholder
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        private var binding: Binding<String>
+        var isEditing = false
+
+        init(text: Binding<String>) {
+            self.binding = text
+        }
+
+        func controlTextDidBeginEditing(_ notification: Notification) {
+            isEditing = true
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            binding.wrappedValue = field.stringValue
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            if let field = notification.object as? NSTextField {
+                binding.wrappedValue = field.stringValue
+            }
+            isEditing = false
         }
     }
 }
