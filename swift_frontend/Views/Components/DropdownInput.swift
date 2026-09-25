@@ -125,7 +125,7 @@ public struct DecimalAmountDropdown: View {
 
     public var body: some View {
         HStack(spacing: 4) {
-            Picker("(label) dollars", selection: wholeBinding) {
+            Picker("\(label) dollars", selection: wholeBinding) {
                 ForEach(Array(range), id: \.self) { item in
                     Text("\(item)").tag(item)
                 }
@@ -139,7 +139,7 @@ public struct DecimalAmountDropdown: View {
                 .font(.headline)
                 .foregroundStyle(.secondary)
 
-            Picker("(label) cents", selection: centsBinding) {
+            Picker("\(label) cents", selection: centsBinding) {
                 ForEach(0..<100, id: \.self) { item in
                     Text(String(format: "%02d", item)).tag(item)
                 }
