@@ -42,8 +42,13 @@ public struct SettingsView: View {
                     if selectedAccountIsDemo != newIsDemo { selectedAccountIsDemo = newIsDemo }
                 }
                 .onChange(of: selectedAccountIsDemo) { _, newIsDemo in
-                    if newIsDemo { viewModel.config.account_type = "demo" }
-                    else if viewModel.config.account_type != "real" { showRealAccountConfirm = true }
+                    DispatchQueue.main.async {
+                        if newIsDemo {
+                            viewModel.config.account_type = "demo"
+                        } else if viewModel.config.account_type != "real" {
+                            showRealAccountConfirm = true
+                        }
+                    }
                 }
                 .alert("Switch to a real-money account?", isPresented: $showRealAccountConfirm) {
                     Button("Switch to Real Account", role: .destructive) {
@@ -221,7 +226,7 @@ struct NativeEditableField: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(binding: $text) }
 
     func makeNSView(context: Context) -> NSTextField {
-        let field: NSTextField = isSecure ? NSSecureTextField() : NSTextField()
+        let field: NSTextField = isSecure ? FocusableSecureTextField() : FocusableTextField()
         field.stringValue = text
         field.placeholderString = placeholder
         field.isEditable = true
@@ -236,9 +241,6 @@ struct NativeEditableField: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSTextField, context: Context) {
-        // Never rewrite the AppKit field while the user is typing. Rewriting
-        // during SwiftUI's update pass causes cursor/selection loss and can
-        // trigger "Publishing changes from within view updates".
         if !context.coordinator.isEditing && nsView.stringValue != text {
             nsView.stringValue = text
         }
@@ -248,10 +250,7 @@ struct NativeEditableField: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var binding: Binding<String>
         var isEditing = false
-
-        init(binding: Binding<String>) {
-            self.binding = binding
-        }
+        init(binding: Binding<String>) { self.binding = binding }
 
         func controlTextDidBeginEditing(_ notification: Notification) {
             isEditing = true
@@ -269,6 +268,22 @@ struct NativeEditableField: NSViewRepresentable {
     }
 }
 
+final class FocusableTextField: NSTextField {
+    override var acceptsFirstResponder: Bool { true }
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
+}
+
+final class FocusableSecureTextField: NSSecureTextField {
+    override var acceptsFirstResponder: Bool { true }
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
+}
+
 struct NativeNumberField: NSViewRepresentable {
     @Binding var value: Double
     let placeholder: String
@@ -276,7 +291,7 @@ struct NativeNumberField: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(binding: $value) }
 
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
+        let field = FocusableTextField()
         field.stringValue = String(format: "%.2f", value)
         field.placeholderString = placeholder
         field.isEditable = true
@@ -298,14 +313,9 @@ struct NativeNumberField: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var isEditing = false
         var binding: Binding<Double>
+        init(binding: Binding<Double>) { self.binding = binding }
 
-        init(binding: Binding<Double>) {
-            self.binding = binding
-        }
-
-        func controlTextDidBeginEditing(_ notification: Notification) {
-            isEditing = true
-        }
+        func controlTextDidBeginEditing(_ notification: Notification) { isEditing = true }
 
         func controlTextDidEndEditing(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
@@ -334,7 +344,7 @@ struct NativeIntegerField: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(binding: $value, range: range) }
 
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
+        let field = FocusableTextField()
         field.stringValue = String(value)
         field.placeholderString = placeholder
         field.isEditable = true
@@ -357,15 +367,12 @@ struct NativeIntegerField: NSViewRepresentable {
         var isEditing = false
         var binding: Binding<Int>
         let range: ClosedRange<Int>
-
         init(binding: Binding<Int>, range: ClosedRange<Int>) {
             self.binding = binding
             self.range = range
         }
 
-        func controlTextDidBeginEditing(_ notification: Notification) {
-            isEditing = true
-        }
+        func controlTextDidBeginEditing(_ notification: Notification) { isEditing = true }
 
         func controlTextDidEndEditing(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
