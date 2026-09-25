@@ -128,11 +128,25 @@ public struct SettingsView: View {
 
     private var strategyCard: some View {
         settingsCard("Digit Strategy Rules", systemImage: "die.face.5.fill") {
-            stepperRow("Under Trigger Digit", value: $viewModel.config.under_trigger_digit)
-            stepperRow("Over Trigger Digit", value: $viewModel.config.over_trigger_digit)
-            stepperRow("Win Prediction Digit", value: $viewModel.config.win_predict_digit)
-            stepperRow("Loss Prediction Digit", value: $viewModel.config.loss_predict_digit)
-            stepperRow("Recovery Wins Target", value: $viewModel.config.recovery_wins_required, range: 1...10)
+            editableDigitRow("Under Trigger Digit", value: $viewModel.config.under_trigger_digit)
+            editableDigitRow("Over Trigger Digit", value: $viewModel.config.over_trigger_digit)
+            editableDigitRow("Win Prediction Digit", value: $viewModel.config.win_predict_digit)
+            editableDigitRow("Loss Prediction Digit", value: $viewModel.config.loss_predict_digit)
+            editableDigitRow("Recovery Wins Target", value: $viewModel.config.recovery_wins_required, range: 1...10)
+
+            editableRow("Allowed Contract Types") {
+                Picker("", selection: $viewModel.config.contract_type_mode) {
+                    Text("DIGITUNDER").tag("DIGITUNDER")
+                    Text("DIGITOVER").tag("DIGITOVER")
+                    Text("Both").tag("BOTH")
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 300)
+            }
+
+            Text("Controls which digit contract types the strategy is allowed to place. Both preserves the existing UNDER/OVER recovery behavior.")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
     }
 
@@ -185,50 +199,27 @@ public struct SettingsView: View {
 
     private func numberRow(_ title: String, value: Binding<Double>) -> some View {
         editableRow(title) {
-            NativeEditableField(
-                text: Binding(
-                    get: { String(value.wrappedValue) },
-                    set: { newValue in
-                        let normalized = newValue.replacingOccurrences(of: ",", with: ".")
-                        if let parsed = Double(normalized) {
-                            value.wrappedValue = parsed
-                        } else if normalized.isEmpty {
-                            value.wrappedValue = 0
-                        }
-                    }
-                ),
-                placeholder: title
-            ).frame(width: 180, height: 24)
+            NativeNumberField(value: value, placeholder: title)
+                .frame(width: 180, height: 26)
         }
     }
 
     private func integerRow(_ title: String, value: Binding<Int>) -> some View {
         editableRow(title) {
-            NativeEditableField(
-                text: Binding(
-                    get: { String(value.wrappedValue) },
-                    set: { newValue in
-                        let digits = newValue.filter(\.isNumber)
-                        value.wrappedValue = Int(digits) ?? 0
-                    }
-                ),
-                placeholder: title
-            ).frame(width: 180, height: 24)
+            NativeIntegerField(value: value, placeholder: title)
+                .frame(width: 180, height: 26)
         }
     }
 
-    private func stepperRow(_ title: String, value: Binding<Int>, range: ClosedRange<Int> = 0...9) -> some View {
-        HStack {
-            Text(title)
-            Spacer()
-            Stepper(value: value, in: range) {
-                Text("\(value.wrappedValue)").fontWeight(.semibold).frame(minWidth: 32)
-            }.fixedSize()
+    private func editableDigitRow(_ title: String, value: Binding<Int>, range: ClosedRange<Int> = 0...9) -> some View {
+        editableRow(title) {
+            NativeIntegerField(value: value, placeholder: title, range: range)
+                .frame(width: 180, height: 26)
         }
     }
 }
 
-private struct NativeEditableField: NSViewRepresentable {
+struct NativeEditableField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
     var isSecure: Bool = false
@@ -244,6 +235,8 @@ private struct NativeEditableField: NSViewRepresentable {
         field.isEditable = true
         field.isSelectable = true
         field.isEnabled = true
+        field.allowsEditingTextAttributes = false
+        field.cell?.isScrollable = true
         field.usesSingleLineMode = true
         field.lineBreakMode = .byTruncatingTail
         field.delegate = context.coordinator
@@ -288,6 +281,112 @@ private struct NativeEditableField: NSViewRepresentable {
                 self.binding.wrappedValue = value
                 self.isEditing = false
             }
+        }
+    }
+}
+
+
+struct NativeNumberField: NSViewRepresentable {
+    @Binding var value: Double
+    let placeholder: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(value: value, binding: $value) }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField()
+        field.stringValue = String(value)
+        field.placeholderString = placeholder
+        field.isEditable = true
+        field.isSelectable = true
+        field.isEnabled = true
+        field.allowsEditingTextAttributes = false
+        field.cell?.isScrollable = true
+        field.usesSingleLineMode = true
+        field.delegate = context.coordinator
+        field.bezelStyle = .roundedBezel
+        return field
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        guard !context.coordinator.isEditing else { return }
+        let text = String(value)
+        if nsView.stringValue != text { nsView.stringValue = text }
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var isEditing = false
+        var binding: Binding<Double>
+
+        init(value: Double, binding: Binding<Double>) {
+            self.binding = binding
+        }
+
+        func controlTextDidBeginEditing(_ notification: Notification) { isEditing = true }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            let normalized = field.stringValue.replacingOccurrences(of: ",", with: ".")
+            let parsed = Double(normalized) ?? 0
+            binding.wrappedValue = parsed
+            field.stringValue = String(parsed)
+            isEditing = false
+        }
+    }
+}
+
+struct NativeIntegerField: NSViewRepresentable {
+    @Binding var value: Int
+    let placeholder: String
+    let range: ClosedRange<Int>
+
+    init(value: Binding<Int>, placeholder: String, range: ClosedRange<Int> = Int.min...Int.max) {
+        self._value = value
+        self.placeholder = placeholder
+        self.range = range
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(binding: $value, range: range) }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField()
+        field.stringValue = String(value)
+        field.placeholderString = placeholder
+        field.isEditable = true
+        field.isSelectable = true
+        field.isEnabled = true
+        field.allowsEditingTextAttributes = false
+        field.cell?.isScrollable = true
+        field.usesSingleLineMode = true
+        field.delegate = context.coordinator
+        field.bezelStyle = .roundedBezel
+        return field
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        guard !context.coordinator.isEditing else { return }
+        let text = String(value)
+        if nsView.stringValue != text { nsView.stringValue = text }
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var isEditing = false
+        var binding: Binding<Int>
+        let range: ClosedRange<Int>
+
+        init(binding: Binding<Int>, range: ClosedRange<Int>) {
+            self.binding = binding
+            self.range = range
+        }
+
+        func controlTextDidBeginEditing(_ notification: Notification) { isEditing = true }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            let parsed = Int(field.stringValue.filter { $0.isNumber || $0 == "-" }) ?? 0
+            let clamped = min(max(parsed, range.lowerBound), range.upperBound)
+            binding.wrappedValue = clamped
+            field.stringValue = String(clamped)
+            isEditing = false
         }
     }
 }
