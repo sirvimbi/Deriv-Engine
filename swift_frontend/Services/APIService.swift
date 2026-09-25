@@ -71,6 +71,19 @@ public class APIService {
         }
     }
 
+    public func getAccountBalance() async throws -> Double {
+        guard let url = URL(string: "\(baseURL)/api/account/balance") else { throw URLError(.badURL) }
+        let (data, response) = try await URLSession.shared.data(from: url)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            let detail = String(data: data, encoding: .utf8) ?? "Account balance request failed"
+            throw NSError(domain: "AccountBalance", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: detail])
+        }
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        if let balance = object?["balance"] as? [String: Any], let value = balance["balance"] as? Double { return value }
+        if let balance = object?["balance"] as? NSNumber { return balance.doubleValue }
+        throw NSError(domain: "AccountBalance", code: -1, userInfo: [NSLocalizedDescriptionKey: "Backend returned no account balance."])
+    }
+
     public func getBotLogs() async throws -> [LogMessage] {
         guard let url = URL(string: "\(baseURL)/api/bot/logs") else {
             throw URLError(.badURL)
