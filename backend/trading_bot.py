@@ -62,6 +62,10 @@ class TradingBot:
                 logger.debug(f"Unable to broadcast log event: {e}")
 
     def update_config(self, new_config: TradingConfig):
+        mode = new_config.contract_type_mode.upper()
+        if mode not in ("DIGITUNDER", "DIGITOVER", "BOTH"):
+            mode = "BOTH"
+        new_config.contract_type_mode = mode
         self.config = new_config
         self.client.app_id = new_config.app_id
         self.client.account_type = new_config.account_type
