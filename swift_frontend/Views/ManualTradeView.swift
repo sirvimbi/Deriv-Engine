@@ -104,6 +104,28 @@ public struct ManualTradeView: View {
             }
         }
     }
+
+    private func copyAllManualTrade() {
+        // Build a human-readable summary of the current manual trade configuration
+        var lines: [String] = []
+        lines.append("Manual Trade Configuration")
+        lines.append("Symbol: \(viewModel.symbol)")
+        lines.append("Contract Type: \(viewModel.contractType)")
+        lines.append(String(format: "Stake: $%.2f", viewModel.amount))
+        lines.append("Duration: \(viewModel.duration) tick\(viewModel.duration == 1 ? "" : "s")")
+        lines.append("Currency: \(viewModel.currency)")
+        if viewModel.contractType.contains("DIGIT") {
+            lines.append("Prediction: \(viewModel.prediction)")
+        }
+
+        let summary = lines.joined(separator: "\n")
+
+        // Copy to macOS pasteboard
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(summary, forType: .string)
+    }
+
     private var tradeSummaryRow: some View {
         HStack(spacing: 10) {
             Image(systemName: "doc.text.magnifyingglass")
@@ -213,7 +235,6 @@ private struct EditableTextField: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let field: NSTextField = isSecure ? EngineSecureTextField() : EngineTextField()
         configureEditor(field, text: text, placeholder: placeholder)
-        field.onCommitHandler = { _ in } // placeholder replaced below
         if let plain = field as? EngineTextField {
             plain.onCommit = { [weak coordinator = context.coordinator] value in coordinator?.commit(value) }
         }
@@ -315,3 +336,4 @@ private struct EditableIntegerField: NSViewRepresentable {
         }
     }
 }
+
