@@ -431,7 +431,7 @@ private extension DashboardView {
     func copySelectedActivity() {
         if activityTab == .logs {
             let text = viewModel.logs.map {
-                "[($0.timestamp)] [($0.level.uppercased())] ($0.message)"
+                "[\($0.timestamp)] [\($0.level.uppercased())] \($0.message)"
             }.joined(separator: "\n")
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
