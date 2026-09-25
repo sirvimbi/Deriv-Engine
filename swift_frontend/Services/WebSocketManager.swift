@@ -76,6 +76,10 @@ public class WebSocketManager: ObservableObject {
         }
     }
 
+    public func setLocalEquity(_ equity: Double) {
+        pendingEquity = equity
+    }
+
     public func clearServerLogs() {
         let payload = "{\"action\":\"clear_logs\"}"
         webSocketTask?.send(.string(payload)) { sendError in
