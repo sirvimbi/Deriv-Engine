@@ -10,47 +10,51 @@ public struct SettingsView: View {
 
     public var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    accountModeCard
-                    credentialsCard
-                    stakeCard
-                    riskCard
-                    strategyCard
-                    actionsCard
-
-                    if let msg = viewModel.errorMessage {
-                        ErrorBanner(msg)
+            if #available(macOS 14.0, *) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        accountModeCard
+                        credentialsCard
+                        stakeCard
+                        riskCard
+                        strategyCard
+                        actionsCard
+                        
+                        if let msg = viewModel.errorMessage {
+                            ErrorBanner(msg)
+                        }
+                        
+                        if viewModel.saveSuccess {
+                            Label("Settings saved successfully!", systemImage: "checkmark.circle.fill")
+                                .foregroundColor(Theme.profit)
+                                .padding(.horizontal, 4)
+                        }
                     }
-
-                    if viewModel.saveSuccess {
-                        Label("Settings saved successfully!", systemImage: "checkmark.circle.fill")
-                            .foregroundColor(Theme.profit)
-                            .padding(.horizontal, 4)
+                    .padding(20)
+                    .frame(maxWidth: 900, alignment: .leading)
+                    .frame(maxWidth: .infinity)
+                }
+                .textSelection(.enabled)
+                .background(Theme.pageBackground.ignoresSafeArea())
+                .navigationTitle("Bot Settings")
+                .onChange(of: viewModel.config.account_type) { _, newValue in
+                    let newIsDemo = newValue != "real"
+                    if selectedAccountIsDemo != newIsDemo { selectedAccountIsDemo = newIsDemo }
+                }
+                .onChange(of: selectedAccountIsDemo) { _, newIsDemo in
+                    if newIsDemo { viewModel.config.account_type = "demo" }
+                    else if viewModel.config.account_type != "real" { showRealAccountConfirm = true }
+                }
+                .alert("Switch to a real-money account?", isPresented: $showRealAccountConfirm) {
+                    Button("Switch to Real Account", role: .destructive) {
+                        viewModel.config.account_type = "real"
                     }
+                    Button("Stay on Demo", role: .cancel) { selectedAccountIsDemo = true }
+                } message: {
+                    Text("The bot will place trades using real funds from your Deriv account. Make sure your risk settings are correct before switching.")
                 }
-                .padding(20)
-                .frame(maxWidth: 900, alignment: .leading)
-                .frame(maxWidth: .infinity)
-            }
-            .textSelection(.enabled)
-            .background(Theme.pageBackground.ignoresSafeArea())
-            .navigationTitle("Bot Settings")
-            .onChange(of: viewModel.config.account_type) { _, newValue in
-                let newIsDemo = newValue != "real"
-                if selectedAccountIsDemo != newIsDemo { selectedAccountIsDemo = newIsDemo }
-            }
-            .onChange(of: selectedAccountIsDemo) { _, newIsDemo in
-                if newIsDemo { viewModel.config.account_type = "demo" }
-                else if viewModel.config.account_type != "real" { showRealAccountConfirm = true }
-            }
-            .alert("Switch to a real-money account?", isPresented: $showRealAccountConfirm) {
-                Button("Switch to Real Account", role: .destructive) {
-                    viewModel.config.account_type = "real"
-                }
-                Button("Stay on Demo", role: .cancel) { selectedAccountIsDemo = true }
-            } message: {
-                Text("The bot will place trades using real funds from your Deriv account. Make sure your risk settings are correct before switching.")
+            } else {
+                // Fallback on earlier versions
             }
         }
     }
