@@ -31,15 +31,18 @@ public enum Theme {
     // Surfaces — platform-specific system background, since UIColor and
     // NSColor aren't interchangeable between iOS and macOS.
     public static var pageBackground: Color {
+        // Trading UI defaults to a dark surface so small digit values remain
+        // readable during long sessions, even when macOS itself is in Light Mode.
         #if os(iOS)
-        return Color(.systemBackground)
+        return Color(red: 0.055, green: 0.065, blue: 0.085)
         #else
-        return Color(NSColor.windowBackgroundColor)
+        return Color(red: 0.045, green: 0.055, blue: 0.070)
         #endif
     }
 
     public static func cardBackground(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.035)
+        // Keep trading cards dark in both system appearance modes.
+        scheme == .dark ? Color.white.opacity(0.065) : Color.white.opacity(0.055)
     }
 
     // Radii / spacing
