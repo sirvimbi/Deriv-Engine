@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 public class APIService {
     public static let shared = APIService()
