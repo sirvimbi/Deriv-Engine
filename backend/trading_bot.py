@@ -82,7 +82,8 @@ class TradingBot:
             self.add_log("error", f"Authorization failed: {str(e)}")
             raise e
 
-        # Reset session metrics
+        # Reset session metrics and start a fresh execution-log/history session.
+        self.logs.clear()
         self.is_running = True
         self.is_trade_in_progress = False
         self.stake = self.config.base_stake
@@ -104,6 +105,11 @@ class TradingBot:
         self.stop_reason = None
 
         self.add_log("success", f"Bot started successfully on market {self.config.symbol}. Base stake: ${self.stake}")
+        if self.status_broadcast_callback:
+            try:
+                await self.status_broadcast_callback("history_reset", {"started_at": int(self.start_time_epoch)})
+            except Exception:
+                pass
 
         # Subscribe to ticks
         try:
@@ -294,6 +300,7 @@ class TradingBot:
         if self.status_broadcast_callback:
             try:
                 await self.status_broadcast_callback("status", self.get_status().dict())
+                await self.status_broadcast_callback("history_refresh", {"reason": "contract_finished"})
             except Exception:
                 pass
 
