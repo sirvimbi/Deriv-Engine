@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 @MainActor
 public class HistoryViewModel: ObservableObject {
@@ -12,15 +13,67 @@ public class HistoryViewModel: ObservableObject {
     @Published public var lossCount: Int = 0
     @Published public var errorMessage: String? = nil
 
+    private var cancellables = Set<AnyCancellable>()
+    private var refreshTask: Task<Void, Never>?
+
     public init() {
+        setupLiveUpdates()
         loadHistory()
+        startAutoRefresh()
+    }
+
+    deinit {
+        refreshTask?.cancel()
+    }
+
+    private func setupLiveUpdates() {
+        WebSocketManager.shared.$historyResetToken
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.clearSession()
+            }
+            .store(in: &cancellables)
+
+        WebSocketManager.shared.$historyRefreshToken
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.loadHistory()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func startAutoRefresh() {
+        refreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard !Task.isCancelled else { break }
+                await self?.loadHistoryAsync()
+            }
+        }
+    }
+
+    private func loadHistoryAsync() async {
+        loadHistory()
+    }
+
+    public func clearSession() {
+        transactions.removeAll()
+        totalProfitSummary = 0
+        totalTradesCount = 0
+        winCount = 0
+        lossCount = 0
+        errorMessage = nil
     }
 
     public func loadHistory() {
         Task {
-            isLoading = true
-            errorMessage = nil
             do {
+                guard try await APIService.shared.getHistorySession() != nil else {
+                    clearSession()
+                    return
+                }
+                isLoading = true
+                errorMessage = nil
                 if selectedTab == 0 {
                     self.transactions = try await APIService.shared.fetchStatement(limit: limit)
                 } else {
