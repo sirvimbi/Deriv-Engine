@@ -171,13 +171,17 @@ class TradingBot:
         if self.is_trade_in_progress:
             return
 
-        # Check strategy entry conditions
-        if self.last_digit == self.config.under_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
-            # Condition 1: last_digit == under_trigger_digit and stake == base_stake -> Purchase DIGITUNDER
+        # Check strategy entry conditions, respecting the user-selected contract mode.
+        mode = self.config.contract_type_mode.upper()
+        under_allowed = mode in ("DIGITUNDER", "BOTH")
+        over_allowed = mode in ("DIGITOVER", "BOTH")
+
+        if under_allowed and self.last_digit == self.config.under_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
+            # Existing base-stake trigger -> DIGITUNDER.
             asyncio.create_task(self._place_trade("DIGITUNDER"))
-            
-        elif self.last_digit == self.config.over_trigger_digit and self.stake > self.config.base_stake:
-            # Condition 2: last_digit == over_trigger_digit and stake > base_stake -> Purchase DIGITOVER
+
+        elif over_allowed and self.last_digit == self.config.over_trigger_digit and self.stake > self.config.base_stake:
+            # Existing recovery trigger -> DIGITOVER.
             asyncio.create_task(self._place_trade("DIGITOVER"))
 
     async def _place_trade(self, contract_type: str):
