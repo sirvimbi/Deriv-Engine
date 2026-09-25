@@ -32,20 +32,32 @@ app.add_middleware(
 default_config = TradingConfig()
 CONFIG_FILE = Path(__file__).resolve().parent / "trading_config.json"
 
+def _normalized_config(config: TradingConfig) -> TradingConfig:
+    """Normalize persisted settings to the same canonical values used by the UI."""
+    mode = str(config.contract_type_mode).upper()
+    if mode not in ("DIGITUNDER", "DIGITOVER", "BOTH"):
+        mode = "BOTH"
+    data = config.dict()
+    data["contract_type_mode"] = mode
+    return TradingConfig.parse_obj(data)
+
+
 def load_persisted_config() -> TradingConfig:
     if not CONFIG_FILE.exists():
-        return default_config
+        return _normalized_config(default_config)
     try:
         with CONFIG_FILE.open("r", encoding="utf-8") as fh:
-            return TradingConfig.parse_obj(json.load(fh))
+            return _normalized_config(TradingConfig.parse_obj(json.load(fh)))
     except Exception as exc:
         logger.warning("Unable to load persisted trading config: %s", exc)
-        return default_config
+        return _normalized_config(default_config)
 
 def persist_config(config: TradingConfig):
+    normalized = _normalized_config(config)
     tmp = CONFIG_FILE.with_suffix(".tmp")
     with tmp.open("w", encoding="utf-8") as fh:
-        json.dump(config.dict(), fh, indent=2)
+        json.dump(normalized.dict(), fh, indent=2)
+        fh.flush()
     tmp.replace(CONFIG_FILE)
 
 bot = TradingBot(load_persisted_config())
@@ -78,13 +90,11 @@ async def equity_broadcast_loop():
     """
     while True:
         try:
+            # Do not authenticate from the background refresh loop. The bot,
+            # dashboard balance endpoint, and manual trade endpoint all own
+            # authentication and can race if this loop opens a second OTP
+            # session. Once an authenticated client exists, refresh it here.
             if bot.client.authorized:
-                balance = await bot.client.get_balance()
-                await bot._on_balance(balance)
-            elif bot.config.api_token and bot.config.app_id:
-                # Dashboard can still show equity before the strategy starts.
-                await bot.client.authorize(bot.config.api_token)
-                await bot.client.subscribe_balance(bot._on_balance)
                 balance = await bot.client.get_balance()
                 await bot._on_balance(balance)
         except Exception as e:
@@ -111,7 +121,9 @@ def get_config():
 
 @app.post("/api/config", response_model=TradingConfig)
 async def update_config(config: TradingConfig):
-    # Pydantic has already validated all user-selectable ranges before this point.
+    # Pydantic validates the numeric ranges; normalize the contract mode once
+    # and persist the canonical configuration that the bot actually receives.
+    config = _normalized_config(config)
     bot.update_config(config)
     persist_config(bot.config)
     return bot.config

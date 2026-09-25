@@ -23,7 +23,11 @@ class TradingBot:
         self.recovery_win_count = 0
         self.in_recovery_cycle = False
         self.recovery_prediction_active = False
+        # Contract type is locked when recovery starts and is never inferred
+        # from the stake amount.
         self.active_contract_type: Optional[str] = None
+        self.active_trade_contract_id: Optional[int] = None
+        self.settled_contract_ids = set()
         
         # Reporting / Metrics
         self.total_profit = 0.0
@@ -127,6 +131,8 @@ class TradingBot:
         self.in_recovery_cycle = False
         self.recovery_prediction_active = False
         self.active_contract_type = None
+        self.active_trade_contract_id = None
+        self.settled_contract_ids.clear()
         self.total_profit = 0.0
         self.runs = 0
         self.total_wins = 0
@@ -213,9 +219,10 @@ class TradingBot:
         if self.is_trade_in_progress:
             return
 
-        # Lock the contract type for the entire recovery cycle.
-        if self.in_recovery_cycle and self.active_contract_type and self.stake > self.config.base_stake:
-            asyncio.create_task(self._place_trade(self.active_contract_type))
+        # Recovery state is authoritative. Do not use stake > base_stake
+        # as the recovery test: max_stake can clamp recovery to base_stake.
+        if self.in_recovery_cycle and self.active_contract_type:
+            self._schedule_trade(self.active_contract_type)
             return
 
         # Normal/base-stake entry respects the configured allowed contract mode.
@@ -229,35 +236,49 @@ class TradingBot:
         over_allowed = mode in ("DIGITOVER", "BOTH")
 
         if under_allowed and self.last_digit == self.config.under_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
-            asyncio.create_task(self._place_trade("DIGITUNDER"))
+            self._schedule_trade("DIGITUNDER")
         elif over_allowed and self.last_digit == self.config.over_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
-            asyncio.create_task(self._place_trade("DIGITOVER"))
+            self._schedule_trade("DIGITOVER")
 
-    async def _place_trade(self, contract_type: str):
+    def _schedule_trade(self, contract_type: str):
         if self.is_trade_in_progress or not self.is_running:
             return
-
+        # Reserve the slot before create_task so two ticks cannot queue trades
+        # against the same mutable recovery state.
         self.is_trade_in_progress = True
+        asyncio.create_task(self._place_trade(contract_type))
 
-        # Once recovery starts, the contract type is immutable for that cycle.
-        if not self.in_recovery_cycle or self.active_contract_type is None:
+    async def _place_trade(self, contract_type: str):
+        if not self.is_running:
+            self.is_trade_in_progress = False
+            return
+
+        # Capture immutable trade context before any await. Settlement uses
+        # this exact context rather than whatever state the next step has.
+        if self.in_recovery_cycle and self.active_contract_type:
+            contract_type = self.active_contract_type
+        elif not self.in_recovery_cycle:
             self.active_contract_type = contract_type
+
+        trade_contract_type = contract_type
+        trade_prediction = int(self.predict)
+        trade_stake = float(self.stake)
 
         self.add_log(
             "info",
-            f"Executing {contract_type} trade | Stake: ${self.stake:.2f} | "
-            f"Target Digit Prediction: {self.predict} | "
-            f"Recovery Contract: {self.active_contract_type}"
+            f"Executing {trade_contract_type} trade | Stake: ${trade_stake:.2f} | "
+            f"Target Digit Prediction: {trade_prediction} | "
+            f"Recovery Contract: {self.active_contract_type or trade_contract_type}"
         )
 
         try:
             buy_res = await self.client.buy_contract(
                 symbol=self.config.symbol,
-                contract_type=contract_type,
-                amount=self.stake,
+                contract_type=trade_contract_type,
+                amount=trade_stake,
                 duration=self.time_duration,
                 duration_unit=self.config.duration_unit,
-                barrier=self.predict,
+                barrier=trade_prediction,
                 currency=self.config.currency
             )
             
@@ -267,16 +288,31 @@ class TradingBot:
                 self.is_trade_in_progress = False
                 return
 
-            self.add_log("info", f"Contract #{contract_id} placed. Waiting for outcome...")
+            contract_id = int(contract_id)
+            self.active_trade_contract_id = contract_id
+            self.add_log(
+                "info",
+                f"Contract #{contract_id} placed. Type={trade_contract_type} | "
+                f"Prediction={trade_prediction} | Stake=${trade_stake:.2f} | Waiting for outcome..."
+            )
 
-            # Subscribe to proposal open contract until completion
+            # The contract id is an idempotency key. Duplicate final updates
+            # must never advance the recovery state twice.
             done_event = asyncio.Event()
 
             async def _on_contract_update(poc: Dict[str, Any]):
-                is_sold = poc.get("is_sold")
-                if is_sold:
+                if poc.get("is_sold"):
+                    if contract_id in self.settled_contract_ids:
+                        return
+                    self.settled_contract_ids.add(contract_id)
                     self.client.unsubscribe_contract(contract_id)
-                    await self._handle_contract_finished(poc)
+                    await self._handle_contract_finished(
+                        poc,
+                        trade_contract_type=trade_contract_type,
+                        trade_prediction=trade_prediction,
+                        trade_stake=trade_stake,
+                        contract_id=contract_id
+                    )
                     done_event.set()
 
             await self.client.subscribe_contract(contract_id, _on_contract_update)
@@ -292,7 +328,22 @@ class TradingBot:
             self.add_log("error", f"Error placing trade: {str(e)}")
             self.is_trade_in_progress = False
 
-    async def _handle_contract_finished(self, poc: Dict[str, Any]):
+    async def _handle_contract_finished(
+        self,
+        poc: Dict[str, Any],
+        trade_contract_type: str,
+        trade_prediction: int,
+        trade_stake: float,
+        contract_id: int
+    ):
+        if contract_id != self.active_trade_contract_id:
+            self.add_log(
+                "warn",
+                f"Ignoring stale settlement for contract #{contract_id}; "
+                f"active contract is #{self.active_trade_contract_id}."
+            )
+            return
+
         profit = float(poc.get("profit", 0.0))
         status = poc.get("status")  # "won" or "lost"
         is_win = (profit > 0 or status == "won")
@@ -319,22 +370,32 @@ class TradingBot:
             # the configured number of recovery wins is completed.
             if self.in_recovery_cycle:
                 self.recovery_win_count += 1
-                if self.recovery_win_count >= self.config.recovery_wins_required:
+                target = max(1, self.config.recovery_wins_required)
+                if self.recovery_win_count >= target:
                     self.stake = self.config.base_stake
                     self.recovery_win_count = 0
                     self.in_recovery_cycle = False
                     self.recovery_prediction_active = False
                     self.active_contract_type = None
                     self.predict = self.config.win_predict_digit
-                    self.add_log("info", f"Recovery win goal reached ({self.config.recovery_wins_required} wins). Recovery complete; resetting stake to base ${self.stake:.2f} and prediction digit to {self.predict}.")
+                    self.add_log(
+                        "info",
+                        f"Recovery win goal reached ({target} wins). Contract={trade_contract_type}; "
+                        f"resetting stake to base ${self.stake:.2f} and prediction digit to {self.predict}."
+                    )
                 else:
                     self.recovery_prediction_active = True
                     self.predict = self.config.recovery_win_predict_digit
-                    self.add_log("info", f"Recovery win {self.recovery_win_count}/{self.config.recovery_wins_required}. Continuing recovery with prediction digit {self.predict}.")
+                    self.add_log(
+                        "info",
+                        f"Recovery win {self.recovery_win_count}/{target}. Continuing "
+                        f"{trade_contract_type} recovery with prediction digit {self.predict}."
+                    )
             else:
                 self.stake = self.config.base_stake
                 self.recovery_win_count = 0
                 self.recovery_prediction_active = False
+                self.active_contract_type = None
                 self.predict = self.config.win_predict_digit
 
             self.time_duration = self.config.duration
@@ -371,17 +432,15 @@ class TradingBot:
                 self.stake = min(self.stake * self.config.martingale, self.config.max_stake)
                 self.recovery_win_count = 0
                 self.in_recovery_cycle = True
-                if self.recovery_prediction_active:
-                    self.predict = self.config.recovery_win_predict_digit
-                else:
-                    self.recovery_prediction_active = True
-                    self.predict = self.config.loss_predict_digit
+                self.active_contract_type = trade_contract_type
+                self.recovery_prediction_active = False
+                self.predict = self.config.loss_predict_digit
                 self.time_duration = self.config.duration
                 self.add_log(
                     "info",
                     f"Next stake increased to ${self.stake:.2f} (Martingale x{self.config.martingale}). "
-                    f"Recovery contract locked to {self.active_contract_type}; "
-                    f"first recovery trade uses loss prediction digit {self.predict}."
+                    f"Recovery contract LOCKED to {self.active_contract_type}; "
+                    f"next recovery prediction={self.predict}; recovery wins reset to 0."
                 )
 
         # Check stopping criteria
@@ -393,6 +452,8 @@ class TradingBot:
             await self.stop(f"Max runs limit reached ({self.runs} >= {self.config.max_runs})")
 
         self.is_trade_in_progress = False
+        if self.active_trade_contract_id == contract_id:
+            self.active_trade_contract_id = None
 
         try:
             settled_balance = await self.client.get_balance()

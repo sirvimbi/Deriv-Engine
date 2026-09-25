@@ -197,7 +197,11 @@ class DerivClient:
         self.ws_url = None
         logger.info("Disconnected from Deriv WS.")
 
-    async def send_request(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def send_request(
+        self,
+        payload: Dict[str, Any],
+        exact_numeric_fields: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
         await self.connect()
         if not self.ws or self.ws.state is not State.OPEN:
             raise ConnectionError("Deriv WebSocket is not connected.")
@@ -209,7 +213,24 @@ class DerivClient:
         self.pending_requests[req_id] = future
 
         try:
-            await self.ws.send(json.dumps(payload))
+            # Python floats are normally serialized safely, but Deriv validates
+            # buy.price by decimal precision. For price fields, preserve the
+            # exact two-decimal JSON token generated from Decimal instead of
+            # allowing a binary-float representation to leak into the wire
+            # payload.
+            encoded = json.dumps(payload, separators=(",", ":"), allow_nan=False)
+            for field, raw_number in (exact_numeric_fields or {}).items():
+                if field not in payload:
+                    raise ValueError(f"Exact numeric field '{field}' is missing from payload.")
+                Decimal(raw_number)
+                encoded_field = json.dumps(field, separators=(",", ":"))
+                encoded_value = json.dumps(payload[field], separators=(",", ":"))
+                encoded = encoded.replace(
+                    f"{encoded_field}:{encoded_value}",
+                    f"{encoded_field}:{raw_number}",
+                    1
+                )
+            await self.ws.send(encoded)
             return await asyncio.wait_for(future, timeout=15.0)
         except Exception:
             if not future.done():
@@ -381,21 +402,27 @@ class DerivClient:
         if buy_price_decimal < Decimal("0.01"):
             raise Exception("Deriv returned an invalid proposal ask_price.")
 
-        # Keep the JSON numeric representation constrained to two decimals.
-        buy_price = float(f"{buy_price_decimal:.2f}")
+        # Keep both the numeric value and its exact wire representation at
+        # two decimal places. Deriv's buy endpoint accepts a numeric price and
+        # rejects prices with excess decimal precision.
+        buy_price_text = f"{buy_price_decimal:.2f}"
+        buy_price = float(buy_price_text)
 
         logger.info(
             "Buying proposal %s | stake=%s | ask_price=%s | buy_price=%s",
             proposal_id,
             f"{normalized_amount:.2f}",
             str(ask_price_raw),
-            f"{buy_price_decimal:.2f}"
+            buy_price_text
         )
 
-        response = await self.send_request({
-            "buy": str(proposal_id),
-            "price": buy_price
-        })
+        response = await self.send_request(
+            {
+                "buy": str(proposal_id),
+                "price": buy_price
+            },
+            exact_numeric_fields={"price": buy_price_text}
+        )
         if "error" in response:
             raise Exception(
                 response["error"].get(
