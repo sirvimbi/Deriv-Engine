@@ -104,6 +104,9 @@ async def place_manual_trade(req: ManualTradeRequest):
             currency=req.currency
         )
         await client.disconnect()
+        if not bot.session_start_epoch:
+            import time
+            bot.session_start_epoch = int(time.time())
         await bot.status_broadcast_callback("history_refresh", {"reason": "manual_trade"})
         return {"status": "success", "contract": buy_res}
     except Exception as e:
