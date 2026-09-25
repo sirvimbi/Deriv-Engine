@@ -1,9 +1,9 @@
 import asyncio
 import json
 import logging
-import ssl
 import websockets
 from typing import Optional, Dict, Any, Callable
+from websockets.protocol import State
 
 logger = logging.getLogger("DerivClient")
 
@@ -11,11 +11,11 @@ class DerivClient:
     def __init__(self, app_id: int = 1089):
         self.app_id = app_id
         self.ws_urls = [
-            f"wss://ws.binaryws.com/websockets/v3?app_id={self.app_id}",
-            f"wss://ws.derivws.com/websockets/v3?app_id={self.app_id}",
-            f"wss://blue.derivws.com/websockets/v3?app_id={self.app_id}"
+            "wss://ws.derivws.com/websockets/v3",
+            "wss://ws.binaryws.com/websockets/v3",
+            "wss://blue.derivws.com/websockets/v3"
         ]
-        self.ws: Optional[websockets.WebSocketClientProtocol] = None
+        self.ws: Optional[Any] = None
         self.req_id_counter = 1
         self.pending_requests: Dict[int, asyncio.Future] = {}
         self.tick_callbacks: list = []
@@ -30,25 +30,19 @@ class DerivClient:
         return req_id
 
     async def connect(self):
-        if self.ws and self.ws.open:
+        if self.ws and self.ws.state is State.OPEN:
             return
         
-        ssl_ctx = ssl.create_default_context()
-        ssl_ctx.check_hostname = False
-        ssl_ctx.verify_mode = ssl.CERT_NONE
-
         last_err = None
         for url in self.ws_urls:
             try:
                 logger.info(f"Attempting connection to Deriv WS at {url}...")
-                headers = {
-                    "Origin": "https://app.deriv.com",
-                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                }
                 self.ws = await websockets.connect(
                     url,
-                    ssl=ssl_ctx,
-                    additional_headers=headers
+                    proxy=None,
+                    open_timeout=15,
+                    ping_interval=20,
+                    ping_timeout=20
                 )
                 self.listen_task = asyncio.create_task(self._listen_loop())
                 logger.info(f"Connected to Deriv WS successfully at {url}.")
@@ -63,10 +57,18 @@ class DerivClient:
     async def disconnect(self):
         if self.listen_task:
             self.listen_task.cancel()
+            try:
+                await self.listen_task
+            except asyncio.CancelledError:
+                pass
             self.listen_task = None
         if self.ws:
             await self.ws.close()
             self.ws = None
+        for future in list(self.pending_requests.values()):
+            if not future.done():
+                future.cancel()
+        self.pending_requests.clear()
         self.authorized = False
         logger.info("Disconnected from Deriv WS.")
 
@@ -75,14 +77,16 @@ class DerivClient:
         req_id = self._get_req_id()
         payload["req_id"] = req_id
         
-        future = asyncio.get_event_loop().create_future()
+        future = asyncio.get_running_loop().create_future()
         self.pending_requests[req_id] = future
 
-        await self.ws.send(json.dumps(payload))
-        
         try:
-            response = await asyncio.wait_for(future, timeout=15.0)
-            return response
+            await self.ws.send(json.dumps(payload))
+            return await asyncio.wait_for(future, timeout=15.0)
+        except Exception:
+            if not future.done():
+                future.cancel()
+            raise
         finally:
             self.pending_requests.pop(req_id, None)
 
@@ -131,6 +135,8 @@ class DerivClient:
             logger.error(f"WebSocket listen loop error: {e}")
 
     async def authorize(self, token: str) -> Dict[str, Any]:
+        if not token or not token.strip():
+            raise ValueError("Deriv API token is required.")
         response = await self.send_request({"authorize": token})
         if "error" in response:
             self.authorized = False
