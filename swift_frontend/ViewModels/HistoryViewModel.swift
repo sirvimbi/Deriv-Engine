@@ -15,6 +15,7 @@ public class HistoryViewModel: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
     private var refreshTask: Task<Void, Never>?
+    private var suppressAutoRefresh = false
 
     public init() {
         setupLiveUpdates()
@@ -37,7 +38,7 @@ public class HistoryViewModel: ObservableObject {
         WebSocketManager.shared.$historyRefreshToken
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.loadHistory()
+                self?.loadHistory(force: true)
             }
             .store(in: &cancellables)
     }
@@ -56,7 +57,13 @@ public class HistoryViewModel: ObservableObject {
         loadHistory()
     }
 
+    public func refreshNow() {
+        suppressAutoRefresh = false
+        loadHistory(force: true)
+    }
+
     public func clearSession() {
+        suppressAutoRefresh = true
         transactions.removeAll()
         totalProfitSummary = 0
         totalTradesCount = 0
@@ -65,7 +72,8 @@ public class HistoryViewModel: ObservableObject {
         errorMessage = nil
     }
 
-    public func loadHistory() {
+    public func loadHistory(force: Bool = false) {
+        if suppressAutoRefresh && !force { return }
         Task {
             do {
                 guard try await APIService.shared.getHistorySession() != nil else {
