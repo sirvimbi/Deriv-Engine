@@ -46,7 +46,7 @@ public class HistoryViewModel: ObservableObject {
     private func startAutoRefresh() {
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
                 guard !Task.isCancelled else { break }
                 await self?.loadHistoryAsync()
             }
