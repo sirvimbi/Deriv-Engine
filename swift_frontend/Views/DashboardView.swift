@@ -33,7 +33,6 @@ public struct DashboardView: View {
                 }
                     .padding(Theme.gutter)
             }
-            .textSelection(.enabled)
             .background(Theme.pageBackground.ignoresSafeArea())
             .navigationTitle("Dashboard")
             .navigationBarTitleDisplayModeCompat()
@@ -247,6 +246,26 @@ public struct DashboardView: View {
                     .font(.caption2)
                     .foregroundColor(.gray)
             }
+
+            HStack(spacing: 8) {
+                Button(action: { viewModel.clearLogs() }) {
+                    Label("Clear", systemImage: "trash")
+                }
+                .buttonStyle(.bordered)
+
+                Button(action: copyAllDashboard) {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+
+                Button(action: exportLogs) {
+                    Label("Export CSV", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(.bordered)
+
+                Spacer()
+            }
+            .controlSize(.small)
 
             // Newest entries render at the top (list is reversed below), and
             // the ScrollViewReader forces the view back to that newest entry
