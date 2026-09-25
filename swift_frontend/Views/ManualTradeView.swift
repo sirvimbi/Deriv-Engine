@@ -76,7 +76,7 @@ public struct ManualTradeView: View {
                         if let result = viewModel.lastResult {
                             Text(result)
                                 .font(.caption)
-                                .textSelection(.enabled)
+                                
                                 .foregroundColor(Theme.profit)
                         }
 
@@ -89,7 +89,7 @@ public struct ManualTradeView: View {
                 .frame(maxWidth: 900, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }
-            // NOTE: no blanket .textSelection(.enabled) on this ScrollView —
+            // NOTE: no blanket  on this ScrollView —
             // see the comment in SettingsView.swift. It was blocking keyboard
             // input into the native fields above. Selection is applied to
             // the individual label/preview Text views below instead.
@@ -112,16 +112,16 @@ public struct ManualTradeView: View {
                 Text("\(viewModel.contractType) · \(viewModel.symbol)")
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .textSelection(.enabled)
+                    
                 Text("Stake $\(String(format: "%.2f", viewModel.amount)) · \(viewModel.duration)t · \(viewModel.currency)")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .textSelection(.enabled)
+                    
                 if viewModel.contractType.contains("DIGIT") {
                     Text("Prediction: \(viewModel.prediction)")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                        .textSelection(.enabled)
+                        
                 }
             }
             Spacer(minLength: 0)
@@ -143,104 +143,175 @@ public struct ManualTradeView: View {
         HStack(alignment: .center, spacing: 16) {
             Text(title)
                 .frame(minWidth: 180, alignment: .leading)
-                .textSelection(.enabled)
+                
             Spacer(minLength: 8)
             control()
         }
     }
 }
 
-private struct EditableTextField: View {
+// MARK: - Native macOS editing controls
+
+private final class EngineTextField: NSTextField {
+    var onCommit: ((String) -> Void)?
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.window?.makeFirstResponder(self)
+        }
+    }
+
+    override func textDidEndEditing(_ notification: Notification) {
+        super.textDidEndEditing(notification)
+        onCommit?(stringValue)
+    }
+}
+
+private final class EngineSecureTextField: NSSecureTextField {
+    var onCommit: ((String) -> Void)?
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.window?.makeFirstResponder(self)
+        }
+    }
+
+    override func textDidEndEditing(_ notification: Notification) {
+        super.textDidEndEditing(notification)
+        onCommit?(stringValue)
+    }
+}
+
+private func configureEditor(_ field: NSTextField, text: String, placeholder: String) {
+    field.stringValue = text
+    field.placeholderString = placeholder
+    field.isEditable = true
+    field.isSelectable = true
+    field.isEnabled = true
+    field.isBordered = true
+    field.bezelStyle = .roundedBezel
+    field.focusRingType = .default
+    field.usesSingleLineMode = true
+    field.lineBreakMode = .byTruncatingTail
+}
+
+private struct EditableTextField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
     var isSecure = false
-    @State private var draft = ""
-    @FocusState private var focused: Bool
-    var body: some View {
-        Group {
-            if isSecure { SecureField(placeholder, text: $draft) }
-            else { TextField(placeholder, text: $draft) }
+
+    func makeCoordinator() -> Coordinator { Coordinator(binding: $text) }
+
+    func makeNSView(context: Context) -> NSView {
+        let field: NSTextField = isSecure ? EngineSecureTextField() : EngineTextField()
+        configureEditor(field, text: text, placeholder: placeholder)
+        field.onCommitHandler = { _ in } // placeholder replaced below
+        if let plain = field as? EngineTextField {
+            plain.onCommit = { [weak coordinator = context.coordinator] value in coordinator?.commit(value) }
         }
-        .textFieldStyle(.roundedBorder)
-        .focused($focused)
-        .onAppear { draft = text }
-        .onChange(of: focused) { _, active in
-            if active { draft = text } else { text = draft }
+        if let secure = field as? EngineSecureTextField {
+            secure.onCommit = { [weak coordinator = context.coordinator] value in coordinator?.commit(value) }
         }
-        .onChange(of: text) { _, newValue in
-            if !focused && draft != newValue { draft = newValue }
+        return field
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let field = nsView as? NSTextField else { return }
+        field.placeholderString = placeholder
+        field.isEditable = true
+        field.isSelectable = true
+        field.isEnabled = true
+        if field.window?.firstResponder !== field && field.stringValue != text {
+            field.stringValue = text
+        }
+    }
+
+    final class Coordinator: NSObject {
+        let binding: Binding<String>
+        init(binding: Binding<String>) { self.binding = binding }
+        func commit(_ value: String) {
+            DispatchQueue.main.async { [binding] in binding.wrappedValue = value }
         }
     }
 }
 
-private struct EditableNumberField: View {
+private struct EditableNumberField: NSViewRepresentable {
     @Binding var value: Double
     let placeholder: String
-    @State private var draft = ""
-    @FocusState private var focused: Bool
-    var body: some View {
-        TextField(placeholder, text: $draft)
-            .textFieldStyle(.roundedBorder)
-            .focused($focused)
-            .onAppear { draft = String(format: "%.2f", value) }
-            .onChange(of: focused) { _, active in
-                if active { draft = String(format: "%.2f", value) }
-                else if let parsed = Double(draft.replacingOccurrences(of: ",", with: ".")) {
-                    value = parsed; draft = String(format: "%.2f", parsed)
-                } else { draft = String(format: "%.2f", value) }
-            }
-            .onChange(of: value) { _, newValue in
-                if !focused { draft = String(format: "%.2f", newValue) }
-            }
+
+    func makeCoordinator() -> Coordinator { Coordinator(binding: $value) }
+
+    func makeNSView(context: Context) -> EngineTextField {
+        let field = EngineTextField()
+        configureEditor(field, text: String(format: "%.2f", value), placeholder: placeholder)
+        field.onCommit = { [weak coordinator = context.coordinator] text in coordinator?.commit(text) }
+        return field
+    }
+
+    func updateNSView(_ nsView: EngineTextField, context: Context) {
+        if nsView.window?.firstResponder !== nsView {
+            let formatted = String(format: "%.2f", value)
+            if nsView.stringValue != formatted { nsView.stringValue = formatted }
+        }
+        nsView.placeholderString = placeholder
+    }
+
+    final class Coordinator {
+        let binding: Binding<Double>
+        init(binding: Binding<Double>) { self.binding = binding }
+        func commit(_ text: String) {
+            guard let parsed = Double(text.replacingOccurrences(of: ",", with: ".")) else { return }
+            DispatchQueue.main.async { [binding] in binding.wrappedValue = parsed }
+        }
     }
 }
 
-private struct EditableIntegerField: View {
+private struct EditableIntegerField: NSViewRepresentable {
     @Binding var value: Int
     let placeholder: String
     let range: ClosedRange<Int>
-    @State private var draft = ""
-    @FocusState private var focused: Bool
-    init(value: Binding<Int>, placeholder: String, range: ClosedRange<Int>) {
-        self._value = value; self.placeholder = placeholder; self.range = range
-    }
-    var body: some View {
-        TextField(placeholder, text: $draft)
-            .textFieldStyle(.roundedBorder)
-            .focused($focused)
-            .onAppear { draft = String(value) }
-            .onChange(of: focused) { _, active in
-                if active { draft = String(value) }
-                else {
-                    let parsed = Int(draft.filter { $0.isNumber || $0 == "-" }) ?? value
-                    value = min(max(parsed, range.lowerBound), range.upperBound)
-                    draft = String(value)
-                }
-            }
-            .onChange(of: value) { _, newValue in
-                if !focused { draft = String(newValue) }
-            }
-    }
-}
 
-private extension ManualTradeView {
-    func copyAllManualTrade() {
-        var lines = [
-            "DERIV ENGINE — MANUAL TRADE",
-            "Symbol: \(viewModel.symbol)",
-            "Contract Type: \(viewModel.contractType)",
-            String(format: "Stake: $%.2f", viewModel.amount),
-            "Duration: \(viewModel.duration)t",
-            "Currency: \(viewModel.currency)"
-        ]
-        if viewModel.contractType.contains("DIGIT") {
-            lines.append("Prediction Digit: \(viewModel.prediction)")
+    init(value: Binding<Int>, placeholder: String, range: ClosedRange<Int> = Int.min...Int.max) {
+        _value = value
+        self.placeholder = placeholder
+        self.range = range
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(binding: $value, range: range) }
+
+    func makeNSView(context: Context) -> EngineTextField {
+        let field = EngineTextField()
+        configureEditor(field, text: String(value), placeholder: placeholder)
+        field.onCommit = { [weak coordinator = context.coordinator] text in coordinator?.commit(text) }
+        return field
+    }
+
+    func updateNSView(_ nsView: EngineTextField, context: Context) {
+        if nsView.window?.firstResponder !== nsView, nsView.stringValue != String(value) {
+            nsView.stringValue = String(value)
         }
-        if let result = viewModel.lastResult {
-            lines.append("")
-            lines.append("Last Result: \(result)")
+        nsView.placeholderString = placeholder
+    }
+
+    final class Coordinator {
+        let binding: Binding<Int>
+        let range: ClosedRange<Int>
+        init(binding: Binding<Int>, range: ClosedRange<Int>) {
+            self.binding = binding
+            self.range = range
         }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+        func commit(_ text: String) {
+            let parsed = Int(text.filter { $0.isNumber || $0 == "-" }) ?? binding.wrappedValue
+            let clamped = min(max(parsed, range.lowerBound), range.upperBound)
+            DispatchQueue.main.async { [binding] in binding.wrappedValue = clamped }
+        }
     }
 }
