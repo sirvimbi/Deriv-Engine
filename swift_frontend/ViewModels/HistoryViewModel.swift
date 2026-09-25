@@ -76,10 +76,10 @@ public class HistoryViewModel: ObservableObject {
         if suppressAutoRefresh && !force { return }
         Task {
             do {
-                guard try await APIService.shared.getHistorySession() != nil else {
-                    clearSession()
-                    return
-                }
+                // The history endpoints already apply the active bot session
+                // timestamp server-side. Do not perform a second session
+                // probe: older running backends can return 404 here and
+                // prevent all transaction/profit data from loading.
                 isLoading = true
                 errorMessage = nil
                 if selectedTab == 0 {
