@@ -6,7 +6,7 @@ class TradingConfig(BaseModel):
         default="",
         description="Deriv API Access Token"
     )
-    app_id: int = Field(default=1089, description="Deriv App ID")
+    app_id: int = Field(default=0, description="Current Deriv App ID registered on developers.deriv.com")
     symbol: str = Field(default="R_100", description="Market Symbol (e.g. R_100)")
     base_stake: float = Field(default=30.0, description="Base Stake Amount")
     max_stake: float = Field(default=1000.0, description="Maximum Stake Limit")
