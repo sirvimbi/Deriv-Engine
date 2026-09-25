@@ -3,7 +3,7 @@ import logging
 import time
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Callable
-from models import TradingConfig, BotStatus, LogMessage
+from models import TradingConfig, BotStatus, LogMessage, validate_digit_barrier
 from deriv_client import DerivClient
 from runtime import ENGINE_BUILD
 
@@ -292,6 +292,24 @@ class TradingBot:
             trade_prediction = int(self.config.win_predict_digit)
             self.predict = trade_prediction
         trade_stake = float(self.stake)
+
+        # The configuration engine intentionally permits the full digit domain
+        # 0-9. Validate the barrier only after the concrete contract type is
+        # known, because DIGITOVER and DIGITUNDER have different valid edges.
+        try:
+            trade_prediction = validate_digit_barrier(trade_contract_type, trade_prediction)
+        except ValueError as validation_error:
+            self.add_log(
+                "error",
+                f"INVALID DIGIT BARRIER | type={trade_contract_type} | barrier={trade_prediction} | "
+                f"{validation_error}. Trade skipped before Deriv proposal."
+            )
+            self.is_trade_in_progress = False
+            if self.in_recovery_cycle:
+                await self.stop("Invalid recovery digit barrier for locked contract")
+            else:
+                self.active_contract_type = None
+            return
 
         self.add_log(
             "info",
