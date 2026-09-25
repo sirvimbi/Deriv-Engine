@@ -4,6 +4,7 @@ import AppKit
 public struct SettingsView: View {
     @StateObject private var viewModel = SettingsViewModel()
     @State private var showRealAccountConfirm = false
+    @State private var selectedAccountIsDemo = true
 
     public init() {}
 
@@ -35,6 +36,14 @@ public struct SettingsView: View {
             .textSelection(.enabled)
             .background(Theme.pageBackground.ignoresSafeArea())
             .navigationTitle("Bot Settings")
+            .onChange(of: viewModel.config.account_type) { _, newValue in
+                let newIsDemo = newValue != "real"
+                if selectedAccountIsDemo != newIsDemo { selectedAccountIsDemo = newIsDemo }
+            }
+            .onChange(of: selectedAccountIsDemo) { _, newIsDemo in
+                if newIsDemo { viewModel.config.account_type = "demo" }
+                else if viewModel.config.account_type != "real" { showRealAccountConfirm = true }
+            }
             .alert("Switch to a real-money account?", isPresented: $showRealAccountConfirm) {
                 Button("Switch to Real Account", role: .destructive) {
                     viewModel.config.account_type = "real"
@@ -48,16 +57,7 @@ public struct SettingsView: View {
 
     private var accountModeCard: some View {
         settingsCard("Trading Account", systemImage: "creditcard.fill") {
-            Picker("Account Mode", selection: Binding(
-                get: { viewModel.config.isDemo },
-                set: { newIsDemo in
-                    if newIsDemo {
-                        viewModel.config.account_type = "demo"
-                    } else if viewModel.config.account_type != "real" {
-                        showRealAccountConfirm = true
-                    }
-                }
-            )) {
+            Picker("Account Mode", selection: $selectedAccountIsDemo) {
                 Text("Demo").tag(true)
                 Text("Real").tag(false)
             }
