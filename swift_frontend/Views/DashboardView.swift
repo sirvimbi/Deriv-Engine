@@ -372,7 +372,8 @@ private extension DashboardView {
         panel.nameFieldStringValue = "deriv-execution-logs.csv"
         panel.allowedContentTypes = [.commaSeparatedText]
         panel.canCreateDirectories = true
-        if panel.runModal() == .OK, let url = panel.url {
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
             let header = "Timestamp,Level,Message\n"
             let rows = viewModel.logs.map {
                 "\($0.timestamp),\($0.level.csvEscaped),\($0.message.csvEscaped)"
