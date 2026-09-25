@@ -8,6 +8,19 @@ public class APIService {
 
     private init() {}
 
+    public func getRuntime() async throws -> BackendRuntime {
+        guard let url = URL(string: "\(baseURL)/api/runtime") else {
+            throw URLError(.badURL)
+        }
+        let (data, response) = try await URLSession.shared.data(from: url)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw NSError(domain: "BackendRuntime", code: http.statusCode, userInfo: [
+                NSLocalizedDescriptionKey: "Backend runtime check failed (HTTP \(http.statusCode))."
+            ])
+        }
+        return try JSONDecoder().decode(BackendRuntime.self, from: data)
+    }
+
     public func getConfig() async throws -> TradingConfig {
         guard let url = URL(string: "\(baseURL)/api/config") else {
             throw URLError(.badURL)
