@@ -75,7 +75,8 @@ class TradingBot:
             return
         self.add_log("info", f"Authorizing bot with Deriv API Token...")
         try:
-            await self.client.connect()
+            # authorize() obtains a current Deriv OTP URL and establishes the authenticated socket.
+            # Do not call connect() first: that falls back to the legacy WebSocket host and can return HTTP 520.
             await self.client.authorize(self.config.api_token)
         except Exception as e:
             self.add_log("error", f"Authorization failed: {str(e)}")
