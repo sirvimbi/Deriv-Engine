@@ -1,10 +1,76 @@
 import Foundation
 import Combine
 
+public struct TradeLogRow: Identifiable, Equatable {
+    public let id: String
+    public let contractType: String
+    public let stake: Double
+    public let profitLoss: Double
+    public let isWin: Bool
+}
+
 @MainActor
 public class DashboardViewModel: ObservableObject {
     @Published public var botStatus: BotStatus = BotStatus.defaultStatus
     @Published public var logs: [LogMessage] = []
+
+    /// A compact, tabular projection of the execution log. The backend log
+    /// remains the source of truth; rows are reconstructed from the placement
+    /// and settlement messages so the table stays synchronized with Clear,
+    /// live updates, copy and export without a second persistence path.
+    public var tradeLogRows: [TradeLogRow] {
+        var pending: [(id: String, type: String, stake: Double)] = []
+        var rows: [TradeLogRow] = []
+
+        let placementPattern = #"Contract #(\\d+) placed\\. Type=(DIGITUNDER|DIGITOVER|BOTH).*?Stake=\\$([0-9]+(?:\\.[0-9]+)?)"#
+        let outcomePattern = #"Trade (WON|LOST)! ([+-])\\$([0-9]+(?:\\.[0-9]+)?)"#
+
+        guard let placementRegex = try? NSRegularExpression(pattern: placementPattern),
+              let outcomeRegex = try? NSRegularExpression(pattern: outcomePattern) else {
+            return rows
+        }
+
+        for log in logs {
+            let message = log.message
+            let nsRange = NSRange(message.startIndex..<message.endIndex, in: message)
+
+            if let match = placementRegex.firstMatch(in: message, range: nsRange),
+               let idRange = Range(match.range(at: 1), in: message),
+               let typeRange = Range(match.range(at: 2), in: message),
+               let stakeRange = Range(match.range(at: 3), in: message),
+               let stake = Double(message[stakeRange]) {
+                pending.append((
+                    id: String(message[idRange]),
+                    type: String(message[typeRange]).uppercased(),
+                    stake: stake
+                ))
+                continue
+            }
+
+            if let match = outcomeRegex.firstMatch(in: message, range: nsRange),
+               let resultRange = Range(match.range(at: 1), in: message),
+               let signRange = Range(match.range(at: 2), in: message),
+               let amountRange = Range(match.range(at: 3), in: message),
+               let amount = Double(message[amountRange]),
+               !pending.isEmpty {
+                let result = String(message[resultRange])
+                let sign = String(message[signRange])
+                let pnl = (sign == "-" ? -amount : amount)
+                let trade = pending.removeFirst()
+                rows.append(
+                    TradeLogRow(
+                        id: trade.id,
+                        contractType: trade.type,
+                        stake: trade.stake,
+                        profitLoss: pnl,
+                        isWin: result == "WON" || pnl > 0
+                    )
+                )
+            }
+        }
+
+        return rows
+    }
     @Published public var lastQuote: Double? = nil
     @Published public var lastDigit: Int? = nil
     @Published public var tickHistory: [Int] = [] // recent last digits
