@@ -346,8 +346,11 @@ final class FocusableTextField: NSTextField {
 final class FocusableSecureTextField: NSSecureTextField {
     override var acceptsFirstResponder: Bool { true }
     override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
         super.mouseDown(with: event)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.window?.makeFirstResponder(self)
+        }
     }
 }
 
