@@ -22,6 +22,7 @@ class TradingBot:
         self.loss_streak = 0
         self.recovery_win_count = 0
         self.in_recovery_cycle = False
+        self.recovery_phase = 0  # 0 normal, 1 loss digit, 2 recovery target digit
         self.recovery_prediction_active = False
         # Contract type is locked when recovery starts and is never inferred
         # from the stake amount.
@@ -129,6 +130,7 @@ class TradingBot:
         self.loss_streak = 0
         self.recovery_win_count = 0
         self.in_recovery_cycle = False
+        self.recovery_phase = 0
         self.recovery_prediction_active = False
         self.active_contract_type = None
         self.active_trade_contract_id = None
@@ -146,7 +148,7 @@ class TradingBot:
         self.start_time_epoch = time.time()
         self.stop_reason = None
 
-        self.add_log("success", f"Bot started successfully on market {self.config.symbol}. Base stake: ${self.stake}")
+        self.add_log("success", f"Bot started successfully on market {self.config.symbol}. Base stake: ${self.stake} | Recovery target={max(1, self.config.recovery_wins_required)} wins | Recovery prediction digit={self.config.recovery_win_predict_digit} | Loss prediction digit={self.config.loss_predict_digit}")
         if self.status_broadcast_callback:
             try:
                 await self.status_broadcast_callback("history_reset", {"started_at": int(self.start_time_epoch)})
@@ -222,6 +224,7 @@ class TradingBot:
         # Recovery state is authoritative. Do not use stake > base_stake
         # as the recovery test: max_stake can clamp recovery to base_stake.
         if self.in_recovery_cycle and self.active_contract_type:
+            self.predict = (self.config.loss_predict_digit if self.recovery_phase == 1 else self.config.recovery_win_predict_digit)
             self._schedule_trade(self.active_contract_type)
             return
 
@@ -261,7 +264,12 @@ class TradingBot:
             self.active_contract_type = contract_type
 
         trade_contract_type = contract_type
-        trade_prediction = int(self.predict)
+        if self.in_recovery_cycle:
+            trade_prediction = (self.config.loss_predict_digit if self.recovery_phase == 1 else self.config.recovery_win_predict_digit)
+            self.predict = trade_prediction
+        else:
+            trade_prediction = int(self.config.win_predict_digit)
+            self.predict = trade_prediction
         trade_stake = float(self.stake)
 
         self.add_log(
@@ -375,6 +383,7 @@ class TradingBot:
                     self.stake = self.config.base_stake
                     self.recovery_win_count = 0
                     self.in_recovery_cycle = False
+                    self.recovery_phase = 0
                     self.recovery_prediction_active = False
                     self.active_contract_type = None
                     self.predict = self.config.win_predict_digit
@@ -384,6 +393,7 @@ class TradingBot:
                         f"resetting stake to base ${self.stake:.2f} and prediction digit to {self.predict}."
                     )
                 else:
+                    self.recovery_phase = 2
                     self.recovery_prediction_active = True
                     self.predict = self.config.recovery_win_predict_digit
                     self.add_log(
@@ -395,6 +405,7 @@ class TradingBot:
                 self.stake = self.config.base_stake
                 self.recovery_win_count = 0
                 self.recovery_prediction_active = False
+                self.recovery_phase = 0
                 self.active_contract_type = None
                 self.predict = self.config.win_predict_digit
 
@@ -419,6 +430,7 @@ class TradingBot:
                 self.stake = self.config.base_stake
                 self.recovery_win_count = 0
                 self.in_recovery_cycle = False
+                self.recovery_phase = 0
                 self.recovery_prediction_active = False
                 self.active_contract_type = None
                 self.predict = self.config.win_predict_digit
@@ -432,6 +444,7 @@ class TradingBot:
                 self.stake = min(self.stake * self.config.martingale, self.config.max_stake)
                 self.recovery_win_count = 0
                 self.in_recovery_cycle = True
+                self.recovery_phase = 1
                 self.active_contract_type = trade_contract_type
                 self.recovery_prediction_active = False
                 self.predict = self.config.loss_predict_digit
