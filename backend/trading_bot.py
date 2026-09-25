@@ -37,6 +37,7 @@ class TradingBot:
         self.last_digit: Optional[int] = None
         self.last_tick_quote: Optional[float] = None
         self.start_time_epoch = time.time()
+        self.session_start_epoch = 0
         self.stop_reason: Optional[str] = None
         
         self.logs: List[LogMessage] = []
@@ -84,6 +85,7 @@ class TradingBot:
 
         # Reset session metrics and start a fresh execution-log/history session.
         self.logs.clear()
+        self.session_start_epoch = int(time.time())
         self.is_running = True
         self.is_trade_in_progress = False
         self.stake = self.config.base_stake
