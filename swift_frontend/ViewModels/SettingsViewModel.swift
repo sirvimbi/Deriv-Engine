@@ -28,7 +28,12 @@ public class SettingsViewModel: ObservableObject {
             errorMessage = nil
             saveSuccess = false
             do {
-                self.config = try await APIService.shared.updateConfig(self.config)
+                var pending = self.config
+                pending.contract_type_mode = pending.contract_type_mode.uppercased()
+                if !["DIGITUNDER", "DIGITOVER", "BOTH"].contains(pending.contract_type_mode) {
+                    pending.contract_type_mode = "BOTH"
+                }
+                self.config = try await APIService.shared.updateConfig(pending)
                 saveSuccess = true
             } catch {
                 self.errorMessage = "Failed to save settings: \(error.localizedDescription)"
