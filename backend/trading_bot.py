@@ -86,6 +86,11 @@ class TradingBot:
         # Reset session metrics and start a fresh execution-log/history session.
         self.logs.clear()
         self.session_start_epoch = int(time.time())
+        if self.status_broadcast_callback:
+            try:
+                await self.status_broadcast_callback("logs_reset", {"started_at": self.session_start_epoch})
+            except Exception:
+                pass
         self.is_running = True
         self.is_trade_in_progress = False
         self.stake = self.config.base_stake
