@@ -4,6 +4,7 @@ import Combine
 public struct TradeLogRow: Identifiable, Equatable {
     public let id: String
     public let contractType: String
+    public let buyPrice: Double
     public let stake: Double
     public let profitLoss: Double
     public let isWin: Bool
@@ -19,10 +20,10 @@ public class DashboardViewModel: ObservableObject {
     /// and settlement messages so the table stays synchronized with Clear,
     /// live updates, copy and export without a second persistence path.
     public var tradeLogRows: [TradeLogRow] {
-        var pending: [(id: String, type: String, stake: Double)] = []
+        var pending: [(id: String, type: String, buyPrice: Double, stake: Double)] = []
         var rows: [TradeLogRow] = []
 
-        let placementPattern = #"Contract #(\d+) placed\. Type=(DIGITUNDER|DIGITOVER|BOTH).*?Stake=\$([0-9]+(?:\.[0-9]+)?)"#
+        let placementPattern = #"Contract #(\d+) placed\. Type=(DIGITUNDER|DIGITOVER|BOTH).*?(?:BuyPrice=\$([0-9]+(?:\.[0-9]+)?)\s*\|\s*)?Stake=\$([0-9]+(?:\.[0-9]+)?)"#
         let outcomePattern = #"Trade (WON|LOST)! ([+-])\$([0-9]+(?:\.[0-9]+)?)"#
 
         guard let placementRegex = try? NSRegularExpression(pattern: placementPattern),
@@ -37,11 +38,23 @@ public class DashboardViewModel: ObservableObject {
             if let match = placementRegex.firstMatch(in: message, range: nsRange),
                let idRange = Range(match.range(at: 1), in: message),
                let typeRange = Range(match.range(at: 2), in: message),
-               let stakeRange = Range(match.range(at: 3), in: message),
+               let stakeRange = Range(match.range(at: 4), in: message),
                let stake = Double(message[stakeRange]) {
+                let buyPrice: Double
+                if match.range(at: 3).location != NSNotFound,
+                   let buyPriceRange = Range(match.range(at: 3), in: message),
+                   let parsedBuyPrice = Double(message[buyPriceRange]) {
+                    buyPrice = parsedBuyPrice
+                } else {
+                    // Older execution logs did not contain BuyPrice, so use
+                    // the recorded stake as the backward-compatible value.
+                    buyPrice = stake
+                }
+
                 pending.append((
                     id: String(message[idRange]),
                     type: String(message[typeRange]).uppercased(),
+                    buyPrice: buyPrice,
                     stake: stake
                 ))
                 continue
@@ -61,6 +74,7 @@ public class DashboardViewModel: ObservableObject {
                     TradeLogRow(
                         id: trade.id,
                         contractType: trade.type,
+                        buyPrice: trade.buyPrice,
                         stake: trade.stake,
                         profitLoss: pnl,
                         isWin: result == "WON" || pnl > 0
