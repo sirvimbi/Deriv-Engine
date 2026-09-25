@@ -2,7 +2,7 @@ import Foundation
 
 public struct TradingConfig: Codable, Equatable {
     public var api_token: String
-    public var app_id: Int
+    public var app_id: String
     public var symbol: String
     public var base_stake: Double
     public var max_stake: Double
@@ -19,17 +19,13 @@ public struct TradingConfig: Codable, Equatable {
     public var duration_unit: String
     public var currency: String
     public var recovery_wins_required: Int
-
-    /// New: "demo" or "real". Additive field for the account switcher —
-    /// decoded defensively below so older backend responses that don't
-    /// include it yet still decode without crashing.
     public var account_type: String
 
     public var isDemo: Bool { account_type.lowercased() != "real" }
 
     public init(
         api_token: String = "",
-        app_id: Int = 1089,
+        app_id: String = "",
         symbol: String = "R_100",
         base_stake: Double = 30.0,
         max_stake: Double = 1000.0,
@@ -69,14 +65,16 @@ public struct TradingConfig: Codable, Equatable {
         self.account_type = account_type
     }
 
-    // Custom decoding: every field falls back to its default if the
-    // backend response is missing it, instead of failing the whole decode.
-    // This is what lets us add `account_type` (and any future field)
-    // without requiring the Python backend to be updated in lockstep.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         api_token = try c.decodeIfPresent(String.self, forKey: .api_token) ?? ""
-        app_id = try c.decodeIfPresent(Int.self, forKey: .app_id) ?? 1089
+        if let stringID = try c.decodeIfPresent(String.self, forKey: .app_id) {
+            app_id = stringID
+        } else if let numericID = try c.decodeIfPresent(Int.self, forKey: .app_id) {
+            app_id = String(numericID)
+        } else {
+            app_id = ""
+        }
         symbol = try c.decodeIfPresent(String.self, forKey: .symbol) ?? "R_100"
         base_stake = try c.decodeIfPresent(Double.self, forKey: .base_stake) ?? 30.0
         max_stake = try c.decodeIfPresent(Double.self, forKey: .max_stake) ?? 1000.0
