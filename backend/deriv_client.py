@@ -30,6 +30,7 @@ class DerivClient:
         self.listen_task: Optional[asyncio.Task] = None
         self.authorized = False
         self.account_info: Dict[str, Any] = {}
+        self._auth_token = ""
 
     def _get_req_id(self) -> int:
         req_id = self.req_id_counter
@@ -195,6 +196,7 @@ class DerivClient:
         self.pending_requests.clear()
         self.authorized = False
         self.ws_url = None
+        self._auth_token = ""
         logger.info("Disconnected from Deriv WS.")
 
     async def send_request(
@@ -232,6 +234,12 @@ class DerivClient:
                 )
             await self.ws.send(encoded)
             return await asyncio.wait_for(future, timeout=15.0)
+        except asyncio.CancelledError as exc:
+            if not future.done():
+                future.cancel()
+            if not self.ws or self.ws.state is not State.OPEN:
+                raise ConnectionError("Deriv WebSocket connection was interrupted while waiting for a response.") from exc
+            raise
         except Exception:
             if not future.done():
                 future.cancel()
@@ -293,9 +301,16 @@ class DerivClient:
             pass
         except Exception as e:
             logger.error(f"WebSocket listen loop error: {e}")
+            if self.ws is not None:
+                try:
+                    await self.ws.close()
+                except Exception:
+                    pass
+            self.ws = None
+            self.authorized = False
             for future in list(self.pending_requests.values()):
                 if not future.done():
-                    future.set_exception(ConnectionError(str(e)))
+                    future.set_exception(ConnectionError(f"Deriv WebSocket disconnected: {e}"))
 
     async def authorize(self, token: str) -> Dict[str, Any]:
         """Authenticate by REST Bearer token -> account lookup -> one-time WebSocket OTP."""
@@ -309,6 +324,7 @@ class DerivClient:
                 await self.disconnect()
 
             await self._connect_url(auth["url"])
+            self._auth_token = normalized_token
             self.authorized = True
             self.account_info = auth["account"]
             logger.info(
@@ -334,10 +350,53 @@ class DerivClient:
     async def subscribe_ticks(self, symbol: str, callback: Callable):
         if callback not in self.tick_callbacks:
             self.tick_callbacks.append(callback)
-        response = await self.send_request({"ticks": symbol, "subscribe": 1})
-        if "error" in response:
-            raise Exception(response["error"].get("message", "Tick subscription failed"))
-        return response
+
+        last_error: Optional[BaseException] = None
+        for attempt in range(1, 4):
+            try:
+                response = await self.send_request({"ticks": symbol, "subscribe": 1})
+                if "error" in response:
+                    raise Exception(response["error"].get("message", "Tick subscription failed"))
+                logger.info("Tick subscription established | symbol=%s | attempt=%d", symbol, attempt)
+                return response
+            except (asyncio.CancelledError, ConnectionError, TimeoutError, websockets.exceptions.ConnectionClosed) as exc:
+                last_error = exc
+                if attempt >= 3:
+                    break
+                if self._auth_token:
+                    logger.warning(
+                        "Tick subscription interrupted for %s (attempt %d/3); requesting a fresh authenticated WebSocket.",
+                        symbol, attempt
+                    )
+                    try:
+                        await self.authorize(self._auth_token)
+                    except Exception as reconnect_error:
+                        last_error = reconnect_error
+                        await asyncio.sleep(0.5 * attempt)
+                else:
+                    await asyncio.sleep(0.5 * attempt)
+
+        if last_error:
+            if isinstance(last_error, asyncio.CancelledError):
+                raise ConnectionError(f"Unable to subscribe to ticks for {symbol}: WebSocket cancelled after 3 attempts.") from last_error
+            raise ConnectionError(f"Unable to subscribe to ticks for {symbol} after 3 attempts: {last_error}") from last_error
+        raise ConnectionError(f"Unable to subscribe to ticks for {symbol}.")
+
+    async def get_active_symbols(self, contract_types: Optional[list[str]] = None) -> list[Dict[str, Any]]:
+        """Fetch currently active public symbols, optionally filtered by contract type."""
+        client = DerivClient()
+        try:
+            await client.connect(self.PUBLIC_WS_URL)
+            payload: Dict[str, Any] = {"active_symbols": "brief"}
+            if contract_types:
+                payload["contract_type"] = contract_types
+            response = await client.send_request(payload)
+            if "error" in response:
+                raise Exception(response["error"].get("message", "Active symbols request failed"))
+            symbols = response.get("active_symbols", [])
+            return symbols if isinstance(symbols, list) else []
+        finally:
+            await client.disconnect()
 
     async def unsubscribe_ticks(self, symbol: str):
         response = await self.send_request({"forget_all": "ticks"})
@@ -371,6 +430,19 @@ class DerivClient:
         )
         if normalized_amount < Decimal("0.01"):
             raise ValueError("Trade amount must be at least 0.01.")
+
+        # Fail before requesting a proposal when the authenticated account
+        # cannot afford the configured stake. Deriv otherwise returns a
+        # successful proposal and only rejects the subsequent buy, which makes
+        # the execution log look like a transport/trading bug.
+        if self.authorized:
+            balance_response = await self.get_balance()
+            available_balance = Decimal(str(balance_response.get("balance", "0")))
+            if available_balance < normalized_amount:
+                raise ValueError(
+                    f"Insufficient Deriv balance: available={available_balance:.2f} "
+                    f"{currency}, required={normalized_amount:.2f} {currency}."
+                )
 
         proposal_params: Dict[str, Any] = {
             "proposal": 1,

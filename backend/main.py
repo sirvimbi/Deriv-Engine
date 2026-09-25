@@ -125,6 +125,37 @@ def read_root():
         "bot_running": bot.is_running
     }
 
+@app.get("/api/markets/digit-symbols")
+async def get_digit_symbols():
+    """Return symbols currently advertised by Deriv for digit contracts.
+
+    This is intentionally dynamic rather than a hard-coded symbol list because
+    Deriv can add, remove, suspend, or rename markets.
+    """
+    try:
+        raw_symbols = await DerivClient().get_active_symbols(["DIGITOVER", "DIGITUNDER"])
+        symbols = []
+        seen = set()
+        for item in raw_symbols:
+            symbol = str(item.get("underlying_symbol") or item.get("symbol") or "").strip()
+            if not symbol or symbol in seen:
+                continue
+            if int(item.get("is_trading_suspended", 0) or 0) != 0:
+                continue
+            seen.add(symbol)
+            symbols.append({
+                "symbol": symbol,
+                "name": str(item.get("underlying_symbol_name") or item.get("display_name") or symbol),
+                "market": str(item.get("market") or ""),
+                "submarket": str(item.get("submarket") or ""),
+                "underlying_symbol_type": str(item.get("underlying_symbol_type") or item.get("symbol_type") or "")
+            })
+        symbols.sort(key=lambda value: (value["market"], value["submarket"], value["name"], value["symbol"]))
+        return {"status": "success", "symbols": symbols}
+    except Exception as exc:
+        logger.warning("Unable to load Deriv digit symbols: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Unable to load current Deriv digit symbols: {exc}")
+
 @app.get("/api/config", response_model=TradingConfig)
 def get_config():
     return bot.config

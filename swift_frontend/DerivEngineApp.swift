@@ -1,7 +1,19 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 @main
 struct DerivEngineApp: App {
+    init() {
+        #if os(macOS)
+        // This app does not use document-style window tabs. Disabling
+        // automatic tabbing also avoids AppKit trying to index tabs before a
+        // Swift Package executable has a full application bundle.
+        NSWindow.allowsAutomaticWindowTabbing = false
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
             MainTabView()

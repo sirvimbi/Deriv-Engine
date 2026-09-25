@@ -407,8 +407,15 @@ class TradingBot:
                 self.is_trade_in_progress = False
 
         except Exception as e:
-            self.add_log("error", f"Error placing trade: {str(e)}")
+            message = str(e)
+            self.add_log("error", f"Error placing trade: {message}")
             self.is_trade_in_progress = False
+
+            # Do not keep firing new entry attempts when the account cannot
+            # afford the configured stake. This turns repeated Deriv buy
+            # rejections into one actionable stop condition.
+            if message.startswith("Insufficient Deriv balance:"):
+                await self.stop("Insufficient account balance for configured stake")
 
     @staticmethod
     def _extract_last_digit_from_spot(spot: Any, pip_size: int = 2) -> Optional[int]:
