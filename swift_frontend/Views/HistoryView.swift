@@ -16,7 +16,7 @@ public struct HistoryView: View {
                 .padding(.horizontal)
                 .padding(.top, 12)
                 .onChange(of: viewModel.selectedTab) { _ in
-                    viewModel.loadHistory()
+                    viewModel.refreshNow()
                 }
 
                 summaryBanner
@@ -54,12 +54,16 @@ public struct HistoryView: View {
                     }
                 }
             }
+            .textSelection(.enabled)
             .background(Theme.pageBackground.ignoresSafeArea())
             .navigationTitle("Transactions")
             .toolbar {
-                ToolbarItem(placement: toolbarPlacement) {
-                    Button(action: { viewModel.loadHistory() }) {
-                        Image(systemName: "arrow.clockwise")
+                ToolbarItemGroup(placement: toolbarPlacement) {
+                    Button(action: { viewModel.clearSession() }) {
+                        Label("Clear", systemImage: "trash")
+                    }
+                    Button(action: { viewModel.refreshNow() }) {
+                        Label("Refresh", systemImage: "arrow.clockwise")
                     }
                 }
             }
