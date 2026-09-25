@@ -1,6 +1,8 @@
 import asyncio
 import json
 import logging
+import ssl
+import certifi
 import websockets
 from typing import Optional, Dict, Any, Callable
 from websockets.protocol import State
@@ -37,8 +39,10 @@ class DerivClient:
         for url in self.ws_urls:
             try:
                 logger.info(f"Attempting connection to Deriv WS at {url}...")
+                ssl_context = ssl.create_default_context(cafile=certifi.where())
                 self.ws = await websockets.connect(
                     url,
+                    ssl=ssl_context,
                     proxy=None,
                     open_timeout=15,
                     ping_interval=20,
