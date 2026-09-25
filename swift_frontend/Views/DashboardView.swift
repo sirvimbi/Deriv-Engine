@@ -169,6 +169,18 @@ public struct DashboardView: View {
                 }
             }
             Spacer()
+            Button(action: { viewModel.refreshEquityNow() }) {
+                if viewModel.isRefreshingEquity {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                }
+            }
+            .buttonStyle(.bordered)
+            .help("Refresh account equity")
+            .disabled(viewModel.isRefreshingEquity)
+
             Image(systemName: "chart.line.uptrend.xyaxis.circle.fill")
                 .font(.system(size: 30))
                 .foregroundStyle(Theme.brandGradient)

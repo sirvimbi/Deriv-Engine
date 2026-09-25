@@ -13,6 +13,7 @@ public class DashboardViewModel: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
     private var equityTask: Task<Void, Never>?
+    @Published public var isRefreshingEquity = false
 
     public init() {
         setupSubscriptions()
@@ -82,13 +83,65 @@ public class DashboardViewModel: ObservableObject {
     private func refreshEquity() async {
         do {
             guard !Task.isCancelled else { return }
-            let latestStatus = try await APIService.shared.getBotStatus()
+            let equity = try await APIService.shared.getAccountBalance()
             guard !Task.isCancelled else { return }
-            self.botStatus = latestStatus
+            self.applyEquity(equity)
         } catch {
-            // WebSocket balance subscription remains the primary live path.
-            // Polling is a recovery path for dropped/misordered WS events.
+            // Fall back to the status endpoint so a transient balance request
+            // does not erase a previously displayed equity value.
+            do {
+                let latestStatus = try await APIService.shared.getBotStatus()
+                guard !Task.isCancelled else { return }
+                self.botStatus = latestStatus
+            } catch {
+                // WebSocket balance subscription remains the primary live path.
+            }
         }
+    }
+
+    public func refreshEquityNow() {
+        guard !isRefreshingEquity else { return }
+        isRefreshingEquity = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.isRefreshingEquity = false }
+            do {
+                let equity = try await APIService.shared.getAccountBalance()
+                guard !Task.isCancelled else { return }
+                self.applyEquity(equity)
+            } catch {
+                self.errorMessage = "Unable to refresh account equity: (error.localizedDescription)"
+            }
+        }
+    }
+
+    private func applyEquity(_ equity: Double) {
+        let rounded = (equity * 100).rounded() / 100
+        let current = botStatus
+        botStatus = BotStatus(
+            is_running: current.is_running,
+            is_trade_in_progress: current.is_trade_in_progress,
+            total_profit: current.total_profit,
+            runs: current.runs,
+            total_wins: current.total_wins,
+            total_losses: current.total_losses,
+            win_rate: current.win_rate,
+            current_stake: current.current_stake,
+            current_predict: current.current_predict,
+            loss_streak: current.loss_streak,
+            recovery_win_count: current.recovery_win_count,
+            lowest_balance: current.lowest_balance,
+            lowest_loss: current.lowest_loss,
+            wins_in_row: current.wins_in_row,
+            loss_in_row: current.loss_in_row,
+            last_digit: current.last_digit,
+            last_tick_quote: current.last_tick_quote,
+            duration_minutes: current.duration_minutes,
+            stop_reason: current.stop_reason,
+            config: current.config,
+            equity: rounded
+        )
+        WebSocketManager.shared.setLocalEquity(rounded)
     }
 
     public func clearLogs() {

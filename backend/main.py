@@ -151,12 +151,43 @@ async def clear_bot_logs():
     bot.clear_logs()
     return {"status": "success", "message": "Execution logs cleared"}
 
+async def _monitor_manual_contract(contract_id: int):
+    """Refresh equity when a manually placed contract settles."""
+    done = asyncio.Event()
+
+    async def on_update(poc: Dict[str, Any]):
+        if poc.get("is_sold"):
+            try:
+                settled = await bot.client.get_balance()
+                await bot._on_balance(settled)
+                await broadcast_ws_event("history_refresh", {"reason": "manual_trade_settled", "contract_id": contract_id})
+            except Exception as exc:
+                logger.warning("Manual trade equity refresh failed: %s", exc)
+            finally:
+                bot.client.unsubscribe_contract(contract_id)
+                done.set()
+
+    try:
+        await bot.client.subscribe_contract(contract_id, on_update)
+        await asyncio.wait_for(done.wait(), timeout=60.0)
+    except asyncio.TimeoutError:
+        logger.warning("Manual contract %s did not settle within 60 seconds.", contract_id)
+        bot.client.unsubscribe_contract(contract_id)
+    except Exception as exc:
+        logger.warning("Manual contract %s monitoring failed: %s", contract_id, exc)
+        bot.client.unsubscribe_contract(contract_id)
+
+
 @app.post("/api/trade/place")
 async def place_manual_trade(req: ManualTradeRequest):
-    client = DerivClient(app_id=bot.config.app_id, account_type=bot.config.account_type)
     try:
-        await client.authorize(bot.config.api_token)
-        buy_res = await client.buy_contract(
+        # Manual trades use the same authenticated Deriv client as the bot so
+        # their balance/equity updates are reflected in the dashboard.
+        if not bot.client.authorized:
+            await bot.client.authorize(bot.config.api_token)
+            await bot.client.subscribe_balance(bot._on_balance)
+
+        buy_res = await bot.client.buy_contract(
             symbol=req.symbol,
             contract_type=req.contract_type,
             amount=req.amount,
@@ -165,13 +196,23 @@ async def place_manual_trade(req: ManualTradeRequest):
             barrier=req.prediction,
             currency=req.currency
         )
-        await client.disconnect()
+
+        # Refresh immediately after purchase (stake has been charged), then
+        # monitor settlement so the final win/loss balance is also displayed.
+        try:
+            await bot._on_balance(await bot.client.get_balance())
+        except Exception as balance_error:
+            logger.warning("Manual trade immediate equity refresh failed: %s", balance_error)
+
+        contract_id = buy_res.get("contract_id")
+        if contract_id:
+            asyncio.create_task(_monitor_manual_contract(int(contract_id)))
+
         if not bot.session_start_epoch:
             bot.session_start_epoch = int(time.time())
         await bot.status_broadcast_callback("history_refresh", {"reason": "manual_trade"})
         return {"status": "success", "contract": buy_res}
     except Exception as e:
-        await client.disconnect()
         raise HTTPException(status_code=400, detail=f"Manual trade failed: {str(e)}")
 
 @app.get("/api/history/session")
@@ -209,15 +250,31 @@ async def get_profit_table(limit: int = 50, token: str = None):
 
 @app.get("/api/account/balance")
 async def get_account_balance(token: str = None):
+    """Return the current account balance and synchronize the bot/dashboard state.
+
+    Prefer the bot's already-authenticated Deriv socket. This avoids creating
+    another OTP session for every dashboard refresh and keeps the displayed
+    equity on the same authenticated account used for trading.
+    """
     api_token = token or bot.config.api_token
-    client = DerivClient(app_id=bot.config.app_id, account_type=bot.config.account_type)
     try:
-        await client.authorize(api_token)
-        balance = await client.get_balance()
-        await client.disconnect()
-        return {"status": "success", "balance": balance}
+        if bot.client.authorized:
+            balance = await bot.client.get_balance()
+        else:
+            if not api_token:
+                raise RuntimeError("Deriv API token is not configured.")
+            await bot.client.authorize(api_token)
+            await bot.client.subscribe_balance(bot._on_balance)
+            balance = await bot.client.get_balance()
+
+        await bot._on_balance(balance)
+        return {
+            "status": "success",
+            "balance": balance,
+            "equity": bot.account_equity,
+            "currency": balance.get("currency", bot.config.currency)
+        }
     except Exception as e:
-        await client.disconnect()
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.websocket("/ws/live")
