@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any, Callable
 from models import TradingConfig, BotStatus, LogMessage
 from deriv_client import DerivClient
+from runtime import ENGINE_BUILD
 
 logger = logging.getLogger("TradingBot")
 
@@ -308,7 +309,30 @@ class TradingBot:
             # must never advance the recovery state twice.
             done_event = asyncio.Event()
 
+            contract_verified = False
+
             async def _on_contract_update(poc: Dict[str, Any]):
+                nonlocal contract_verified
+                if not contract_verified:
+                    returned_type = poc.get("contract_type")
+                    if returned_type:
+                        contract_verified = True
+                        if str(returned_type).upper() != str(trade_contract_type).upper():
+                            self.add_log(
+                                "error",
+                                f"CONTRACT MISMATCH | requested=\{trade_contract_type} | "
+                                f"Deriv returned=\{returned_type} | contract_id=\{contract_id}. "
+                                f"Stopping bot to prevent further trades."
+                            )
+                            await self.stop("Deriv contract type mismatch")
+                            done_event.set()
+                            return
+                        self.add_log(
+                            "info",
+                            f"CONTRACT VERIFIED | id=\{contract_id} | type=\{returned_type} | "
+                            f"requested=\{trade_contract_type} | barrier=\{trade_prediction}"
+                        )
+
                 if poc.get("is_sold"):
                     if contract_id in self.settled_contract_ids:
                         return
