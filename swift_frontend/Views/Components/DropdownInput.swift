@@ -67,6 +67,99 @@ public struct DoubleDropdown: View {
     }
 }
 
+
+/// Decimal amount control for monetary values. It deliberately avoids text input:
+/// the user selects whole dollars and cents independently, so values such as
+/// $2.50 remain easy to enter even when macOS text fields are unreliable.
+public struct DecimalAmountDropdown: View {
+    @Binding public var value: Double
+    public let range: ClosedRange<Int>
+    public let label: String
+
+    public init(_ label: String, value: Binding<Double>, range: ClosedRange<Int>) {
+        self.label = label
+        self._value = value
+        self.range = range
+    }
+
+    private var normalizedCents: Int {
+        let raw = Int((value * 100.0).rounded())
+        let minimum = range.lowerBound * 100
+        let maximum = range.upperBound * 100
+        return min(max(raw, minimum), maximum)
+    }
+
+    private var wholeDollars: Int {
+        normalizedCents / 100
+    }
+
+    private var cents: Int {
+        normalizedCents % 100
+    }
+
+    private var wholeBinding: Binding<Int> {
+        Binding(
+            get: { wholeDollars },
+            set: { newWhole in
+                let clampedWhole = min(max(newWhole, range.lowerBound), range.upperBound)
+                let proposed = clampedWhole * 100 + cents
+                let minimum = range.lowerBound * 100
+                let maximum = range.upperBound * 100
+                value = Double(min(max(proposed, minimum), maximum)) / 100.0
+            }
+        )
+    }
+
+    private var centsBinding: Binding<Int> {
+        Binding(
+            get: { cents },
+            set: { newCents in
+                let clampedCents = min(max(newCents, 0), 99)
+                let proposed = wholeDollars * 100 + clampedCents
+                let minimum = range.lowerBound * 100
+                let maximum = range.upperBound * 100
+                value = Double(min(max(proposed, minimum), maximum)) / 100.0
+            }
+        )
+    }
+
+    public var body: some View {
+        HStack(spacing: 4) {
+            Picker("\(label) dollars", selection: wholeBinding) {
+                ForEach(Array(range), id: \.self) { item in
+                    Text("\(item)").tag(item)
+                }
+            }
+            .pickerStyle(.menu)
+            .menuOrder(.fixed)
+            .labelsHidden()
+            .frame(minWidth: 78, maxWidth: 120)
+
+            Text(".")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+
+            Picker("\(label) cents", selection: centsBinding) {
+                ForEach(0..<100, id: \.self) { item in
+                    Text(String(format: "%02d", item)).tag(item)
+                }
+            }
+            .pickerStyle(.menu)
+            .menuOrder(.fixed)
+            .labelsHidden()
+            .frame(minWidth: 62, maxWidth: 82)
+
+            Text("USD")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.leading, 2)
+        }
+        .onAppear {
+            value = Double(normalizedCents) / 100.0
+        }
+    }
+}
+
 public struct ContractModeDropdown: View {
     @Binding public var value: String
 
