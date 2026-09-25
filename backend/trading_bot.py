@@ -1,0 +1,320 @@
+import asyncio
+import logging
+import time
+from datetime import datetime
+from typing import Optional, List, Dict, Any, Callable
+from models import TradingConfig, BotStatus, LogMessage
+from deriv_client import DerivClient
+
+logger = logging.getLogger("TradingBot")
+
+class TradingBot:
+    def __init__(self, config: TradingConfig):
+        self.config = config
+        self.client = DerivClient(app_id=config.app_id)
+        
+        # State variables
+        self.is_running = False
+        self.is_trade_in_progress = False
+        self.stake = config.base_stake
+        self.predict = config.win_predict_digit
+        self.time_duration = config.duration
+        self.loss_streak = 0
+        self.recovery_win_count = 0
+        
+        # Reporting / Metrics
+        self.total_profit = 0.0
+        self.runs = 0
+        self.total_wins = 0
+        self.total_losses = 0
+        self.lowest_balance = 0.0
+        self.lowest_loss = 0.0
+        self.wins_in_row = 0
+        self.current_win_streak = 0
+        self.loss_in_row = 0
+        self.current_loss_streak = 0
+        
+        self.last_digit: Optional[int] = None
+        self.last_tick_quote: Optional[float] = None
+        self.start_time_epoch = time.time()
+        self.stop_reason: Optional[str] = None
+        
+        self.logs: List[LogMessage] = []
+        self.status_broadcast_callback: Optional[Callable] = None
+
+    def set_broadcast_callback(self, cb: Callable):
+        self.status_broadcast_callback = cb
+
+    def add_log(self, level: str, message: str):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        log_item = LogMessage(timestamp=timestamp, level=level, message=message)
+        self.logs.append(log_item)
+        if len(self.logs) > 200:
+            self.logs.pop(0)
+        logger.info(f"[{level.upper()}] {message}")
+        if self.status_broadcast_callback:
+            try:
+                asyncio.create_task(self.status_broadcast_callback("log", log_item.dict()))
+            except Exception:
+                pass
+
+    def update_config(self, new_config: TradingConfig):
+        self.config = new_config
+        if not self.is_running:
+            self.stake = new_config.base_stake
+            self.predict = new_config.win_predict_digit
+            self.time_duration = new_config.duration
+        self.add_log("info", "Bot strategy configuration updated.")
+
+    async def start(self):
+        if self.is_running:
+            return
+        self.add_log("info", f"Authorizing bot with Deriv API Token...")
+        try:
+            await self.client.connect()
+            await self.client.authorize(self.config.api_token)
+        except Exception as e:
+            self.add_log("error", f"Authorization failed: {str(e)}")
+            raise e
+
+        # Reset session metrics
+        self.is_running = True
+        self.is_trade_in_progress = False
+        self.stake = self.config.base_stake
+        self.predict = self.config.win_predict_digit
+        self.time_duration = self.config.duration
+        self.loss_streak = 0
+        self.recovery_win_count = 0
+        self.total_profit = 0.0
+        self.runs = 0
+        self.total_wins = 0
+        self.total_losses = 0
+        self.lowest_balance = 0.0
+        self.lowest_loss = 0.0
+        self.wins_in_row = 0
+        self.current_win_streak = 0
+        self.loss_in_row = 0
+        self.current_loss_streak = 0
+        self.start_time_epoch = time.time()
+        self.stop_reason = None
+
+        self.add_log("success", f"Bot started successfully on market {self.config.symbol}. Base stake: ${self.stake}")
+
+        # Subscribe to ticks
+        try:
+            await self.client.subscribe_ticks(self.config.symbol, self._on_tick)
+        except Exception as e:
+            self.is_running = False
+            self.add_log("error", f"Failed to subscribe to ticks: {str(e)}")
+            raise e
+
+    async def stop(self, reason: str = "Stopped by user"):
+        if not self.is_running:
+            return
+        self.is_running = False
+        self.stop_reason = reason
+        try:
+            await self.client.unsubscribe_ticks(self.config.symbol)
+        except Exception:
+            pass
+        self.add_log("warn", f"Bot stopped: {reason} | Total Profit: ${self.total_profit:.2f} | Runs: {self.runs}")
+        if self.status_broadcast_callback:
+            try:
+                await self.status_broadcast_callback("status", self.get_status().dict())
+            except Exception:
+                pass
+
+    async def _on_tick(self, tick_data: Dict[str, Any]):
+        if not self.is_running:
+            return
+
+        quote = tick_data.get("quote")
+        if quote is None:
+            return
+
+        self.last_tick_quote = float(quote)
+        
+        # Calculate last digit accurately from price representation
+        pip_size = tick_data.get("pip_size", 2)
+        quote_str = f"{self.last_tick_quote:.{pip_size}f}"
+        self.last_digit = int(quote_str[-1])
+
+        # Broadcast live tick to frontend
+        if self.status_broadcast_callback:
+            try:
+                asyncio.create_task(self.status_broadcast_callback("tick", {
+                    "quote": self.last_tick_quote,
+                    "last_digit": self.last_digit,
+                    "symbol": self.config.symbol
+                }))
+            except Exception:
+                pass
+
+        if self.is_trade_in_progress:
+            return
+
+        # Check strategy entry conditions
+        if self.last_digit == self.config.under_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
+            # Condition 1: last_digit == under_trigger_digit and stake == base_stake -> Purchase DIGITUNDER
+            asyncio.create_task(self._place_trade("DIGITUNDER"))
+            
+        elif self.last_digit == self.config.over_trigger_digit and self.stake > self.config.base_stake:
+            # Condition 2: last_digit == over_trigger_digit and stake > base_stake -> Purchase DIGITOVER
+            asyncio.create_task(self._place_trade("DIGITOVER"))
+
+    async def _place_trade(self, contract_type: str):
+        if self.is_trade_in_progress or not self.is_running:
+            return
+
+        self.is_trade_in_progress = True
+        self.add_log("info", f"Executing {contract_type} trade | Stake: ${self.stake:.2f} | Target Digit Prediction: {self.predict}")
+
+        try:
+            buy_res = await self.client.buy_contract(
+                symbol=self.config.symbol,
+                contract_type=contract_type,
+                amount=self.stake,
+                duration=self.time_duration,
+                duration_unit=self.config.duration_unit,
+                barrier=self.predict,
+                currency=self.config.currency
+            )
+            
+            contract_id = buy_res.get("contract_id")
+            if not contract_id:
+                self.add_log("error", "Received invalid contract_id from Deriv.")
+                self.is_trade_in_progress = False
+                return
+
+            self.add_log("info", f"Contract #{contract_id} placed. Waiting for outcome...")
+
+            # Subscribe to proposal open contract until completion
+            done_event = asyncio.Event()
+
+            async def _on_contract_update(poc: Dict[str, Any]):
+                is_sold = poc.get("is_sold")
+                if is_sold:
+                    self.client.unsubscribe_contract(contract_id)
+                    await self._handle_contract_finished(poc)
+                    done_event.set()
+
+            await self.client.subscribe_contract(contract_id, _on_contract_update)
+            
+            # Timeout safety after 30 seconds
+            try:
+                await asyncio.wait_for(done_event.wait(), timeout=30.0)
+            except asyncio.TimeoutError:
+                self.add_log("error", f"Contract #{contract_id} status timeout.")
+                self.is_trade_in_progress = False
+
+        except Exception as e:
+            self.add_log("error", f"Error placing trade: {str(e)}")
+            self.is_trade_in_progress = False
+
+    async def _handle_contract_finished(self, poc: Dict[str, Any]):
+        profit = float(poc.get("profit", 0.0))
+        status = poc.get("status")  # "won" or "lost"
+        is_win = (profit > 0 or status == "won")
+
+        self.total_profit += profit
+        self.runs += 1
+
+        # Lowest balance calculation
+        if self.total_profit < self.lowest_balance:
+            self.lowest_balance = self.total_profit
+
+        if is_win:
+            self.total_wins += 1
+            self.current_win_streak += 1
+            self.current_loss_streak = 0
+            if self.current_win_streak > self.wins_in_row:
+                self.wins_in_row = self.current_win_streak
+
+            self.add_log("success", f"Trade WON! +${profit:.2f} | Total Profit: ${self.total_profit:.2f}")
+
+            # Recovery logic after win
+            if self.stake > self.config.base_stake:
+                self.recovery_win_count += 1
+                if self.recovery_win_count >= self.config.recovery_wins_required:
+                    self.stake = self.config.base_stake
+                    self.recovery_win_count = 0
+                    self.add_log("info", f"Recovery win goal reached ({self.config.recovery_wins_required} wins). Resetting stake to base: ${self.stake:.2f}")
+            else:
+                self.stake = self.config.base_stake
+                self.recovery_win_count = 0
+
+            self.predict = self.config.win_predict_digit
+            self.time_duration = self.config.duration
+            self.loss_streak = 0
+
+        else:
+            self.total_losses += 1
+            self.current_loss_streak += 1
+            self.current_win_streak = 0
+            if self.current_loss_streak > self.loss_in_row:
+                self.loss_in_row = self.current_loss_streak
+
+            if profit < self.lowest_loss:
+                self.lowest_loss = profit
+
+            self.loss_streak += 1
+            self.add_log("error", f"Trade LOST! -${abs(profit):.2f} | Loss Streak: {self.loss_streak} | Total Profit: ${self.total_profit:.2f}")
+
+            # Loss safety streak check
+            if self.loss_streak >= self.config.max_loss_streak:
+                self.stake = self.config.base_stake
+                self.recovery_win_count = 0
+                self.predict = self.config.win_predict_digit
+                self.time_duration = self.config.duration
+                self.loss_streak = 0
+                self.add_log("warn", f"Max loss streak threshold ({self.config.max_loss_streak}) hit! Resetting stake to base: ${self.stake:.2f}")
+            else:
+                # Martingale multiplier
+                self.stake = min(self.stake * self.config.martingale, self.config.max_stake)
+                self.recovery_win_count = 0
+                self.predict = self.config.loss_predict_digit
+                self.time_duration = self.config.duration
+                self.add_log("info", f"Next stake increased to ${self.stake:.2f} (Martingale x{self.config.martingale}). Target digit prediction: {self.predict}")
+
+        # Check stopping criteria
+        if self.total_profit >= self.config.take_profit:
+            await self.stop(f"Take Profit limit reached (+${self.total_profit:.2f} >= ${self.config.take_profit:.2f})")
+        elif self.total_profit <= -self.config.stop_loss:
+            await self.stop(f"Stop Loss limit reached (${self.total_profit:.2f} <= -${self.config.stop_loss:.2f})")
+        elif self.runs >= self.config.max_runs:
+            await self.stop(f"Max runs limit reached ({self.runs} >= {self.config.max_runs})")
+
+        self.is_trade_in_progress = False
+
+        if self.status_broadcast_callback:
+            try:
+                await self.status_broadcast_callback("status", self.get_status().dict())
+            except Exception:
+                pass
+
+    def get_status(self) -> BotStatus:
+        win_rate = (self.total_wins / self.runs * 100.0) if self.runs > 0 else 0.0
+        duration_mins = (time.time() - self.start_time_epoch) / 60.0 if self.is_running else 0.0
+
+        return BotStatus(
+            is_running=self.is_running,
+            is_trade_in_progress=self.is_trade_in_progress,
+            total_profit=round(self.total_profit, 2),
+            runs=self.runs,
+            total_wins=self.total_wins,
+            total_losses=self.total_losses,
+            win_rate=round(win_rate, 2),
+            current_stake=round(self.stake, 2),
+            current_predict=self.predict,
+            loss_streak=self.loss_streak,
+            recovery_win_count=self.recovery_win_count,
+            lowest_balance=round(self.lowest_balance, 2),
+            lowest_loss=round(self.lowest_loss, 2),
+            wins_in_row=self.wins_in_row,
+            loss_in_row=self.loss_in_row,
+            last_digit=self.last_digit,
+            last_tick_quote=self.last_tick_quote,
+            duration_minutes=round(duration_mins, 1),
+            stop_reason=self.stop_reason,
+            config=self.config
+        )
