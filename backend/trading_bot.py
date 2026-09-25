@@ -308,10 +308,12 @@ class TradingBot:
 
             contract_id = int(contract_id)
             self.active_trade_contract_id = contract_id
+            actual_buy_price = float(buy_res.get("buy_price", trade_stake))
             self.add_log(
                 "info",
                 f"Contract #{contract_id} placed. Type={trade_contract_type} | "
-                f"Prediction={trade_prediction} | Stake=${trade_stake:.2f} | Waiting for outcome..."
+                f"Prediction={trade_prediction} | BuyPrice=${actual_buy_price:.2f} | "
+                f"Stake=${trade_stake:.2f} | Waiting for outcome..."
             )
 
             # The contract id is an idempotency key. Duplicate final updates
