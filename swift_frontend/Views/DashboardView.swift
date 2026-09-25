@@ -372,7 +372,7 @@ public struct DashboardView: View {
                                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                            Text(String(format: "$%.2f / $%.2f", row.buyPrice, row.stake))
+                            Text(String(format: "$%.2f", row.buyPrice))
                                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                                 .frame(width: 118, alignment: .trailing)
 
@@ -439,7 +439,7 @@ private extension DashboardView {
         }
 
         let rows = viewModel.tradeLogRows.map {
-            "\($0.contractType)\t\(String(format: "$%.2f / $%.2f", $0.buyPrice, $0.stake))\t\(String(format: "%+.2f", $0.profitLoss))"
+            "\($0.contractType)\t\(String(format: "$%.2f", $0.buyPrice))\t\(String(format: "%+.2f", $0.profitLoss))"
         }
         let text = (["Contract Type\tBuy Price / Stake\tP/L"] + rows).joined(separator: "\n")
         NSPasteboard.general.clearContents()
@@ -466,7 +466,7 @@ private extension DashboardView {
             } else {
                 let header = "Contract Type,Buy Price / Stake,P/L\n"
                 let rows = viewModel.tradeLogRows.map {
-                    "\($0.contractType.csvEscaped),\(String(format: "%.2f / %.2f", $0.buyPrice, $0.stake).csvEscaped),\(String(format: "%.2f", $0.profitLoss).csvEscaped)"
+                    "\($0.contractType.csvEscaped),\(String(format: "%.2f", $0.buyPrice).csvEscaped),\(String(format: "%.2f", $0.profitLoss).csvEscaped)"
                 }.joined(separator: "\n")
                 csv = header + rows + "\n"
             }
