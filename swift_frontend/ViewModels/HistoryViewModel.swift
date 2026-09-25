@@ -115,6 +115,11 @@ public class HistoryViewModel: ObservableObject {
                 profitSum += diff
                 if diff > 0 { wins += 1 }
                 else if diff < 0 { losses += 1 }
+            } else if let amount = tx.amount {
+                // Statement rows expose the cash-flow amount. Summing the
+                // session's buy/sell cash flows gives the realized net P/L
+                // even when the statement response has no profit field.
+                profitSum += amount
             }
         }
 
