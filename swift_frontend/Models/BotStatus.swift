@@ -1,5 +1,11 @@
 import Foundation
 
+public struct BackendRuntime: Codable {
+    public let engine_build: String
+    public let description: String
+    public let api: String
+}
+
 public struct BotStatus: Codable {
     public let is_running: Bool
     public let is_trade_in_progress: Bool
