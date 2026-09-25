@@ -3,7 +3,7 @@ from typing import Optional, List, Dict, Any
 
 class TradingConfig(BaseModel):
     api_token: str = Field(
-        default="pat_63d70ebd7948f94b89f50cb0fced0450e011f4361213ae11838f190bebb618ab",
+        default="",
         description="Deriv API Access Token"
     )
     app_id: int = Field(default=1089, description="Deriv App ID")
@@ -23,6 +23,7 @@ class TradingConfig(BaseModel):
     duration_unit: str = Field(default="t", description="Duration Unit ('t' for ticks, 's' for seconds)")
     currency: str = Field(default="USD", description="Currency Code")
     recovery_wins_required: int = Field(default=2, description="Consecutive Wins Required to Reset Stake After Recovery")
+    account_type: str = Field(default="demo", description="Deriv account type: demo or real")
 
 class BotStatus(BaseModel):
     is_running: bool
