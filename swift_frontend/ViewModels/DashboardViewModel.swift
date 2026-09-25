@@ -19,6 +19,10 @@ public class DashboardViewModel: ObservableObject {
         fetchInitialData()
     }
 
+    deinit {
+        equityTask?.cancel()
+    }
+
     private func setupSubscriptions() {
         WebSocketManager.shared.$latestStatus
             .compactMap { $0 }
