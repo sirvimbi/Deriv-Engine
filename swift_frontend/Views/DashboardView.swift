@@ -268,8 +268,8 @@ public struct DashboardView: View {
                     .foregroundColor(.secondary)
                 Spacer()
                 Text(activityTab == .logs
-                     ? "(viewModel.logs.count) entries"
-                     : "(viewModel.tradeLogRows.count) trades")
+                     ? "\(viewModel.logs.count) entries"
+                     : "\(viewModel.tradeLogRows.count) trades")
                     .font(.caption2)
                     .foregroundColor(.gray)
             }
@@ -310,7 +310,7 @@ public struct DashboardView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: Theme.cornerRadiusLarge, style: .continuous)
-                .fill(Theme.cardBackground)
+                .fill(Color.black.opacity(0.10))
         )
     }
 
@@ -320,7 +320,7 @@ public struct DashboardView: View {
                 LazyVStack(alignment: .leading, spacing: 6) {
                     ForEach(viewModel.logs.reversed()) { log in
                         HStack(alignment: .top, spacing: 6) {
-                            Text("[(log.timestamp)]")
+                            Text("[\(log.timestamp)]")
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                                 .foregroundColor(.gray)
 
@@ -376,7 +376,7 @@ public struct DashboardView: View {
                                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                                 .frame(width: 82, alignment: .trailing)
 
-                            Text(String(format: "%@$%.2f", row.profitLoss >= 0 ? "+" : "-", abs(row.profitLoss)))
+                            Text(String(format: "%@%.2f", row.profitLoss >= 0 ? "+$" : "-$", abs(row.profitLoss)))
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                                 .frame(width: 78, alignment: .trailing)
                         }
