@@ -308,10 +308,12 @@ class TradingBot:
 
             contract_id = int(contract_id)
             self.active_trade_contract_id = contract_id
+            actual_buy_price = float(buy_res.get("buy_price", trade_stake))
             self.add_log(
                 "info",
                 f"Contract #{contract_id} placed. Type={trade_contract_type} | "
-                f"Prediction={trade_prediction} | Stake=${trade_stake:.2f} | Waiting for outcome..."
+                f"Prediction={trade_prediction} | BuyPrice=${actual_buy_price:.2f} | "
+                f"Stake=${trade_stake:.2f} | Waiting for outcome..."
             )
 
             # The contract id is an idempotency key. Duplicate final updates
@@ -358,10 +360,19 @@ class TradingBot:
 
             await self.client.subscribe_contract(contract_id, _on_contract_update)
             
-            # Timeout safety after 30 seconds
+            # Timeout safety after 30 seconds. A settlement callback may
+            # have completed the trade immediately before the wait timed out,
+            # or the bot may have stopped because the settlement triggered a
+            # risk limit. In either case this is a normal monitor shutdown,
+            # not a failed contract.
             try:
                 await asyncio.wait_for(done_event.wait(), timeout=30.0)
             except asyncio.TimeoutError:
+                if contract_id in self.settled_contract_ids or not self.is_running:
+                    self.client.unsubscribe_contract(contract_id)
+                    self.is_trade_in_progress = False
+                    return
+                self.client.unsubscribe_contract(contract_id)
                 self.add_log("error", f"Contract #{contract_id} status timeout.")
                 self.is_trade_in_progress = False
 
