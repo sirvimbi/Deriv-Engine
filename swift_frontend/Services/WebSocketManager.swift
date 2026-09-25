@@ -110,9 +110,10 @@ public class WebSocketManager: ObservableObject {
                            let tick = try? JSONDecoder().decode(LiveTickData.self, from: tickData) {
                             self.latestTick = tick
                         }
+                    } else if type == "logs_reset" {
+                        self.newLogs.removeAll()
                     } else if type == "history_reset" {
                         self.historyResetToken &+= 1
-                        self.newLogs.removeAll()
                     } else if type == "history_refresh" {
                         self.historyRefreshToken &+= 1
                     } else if type == "log", let logDict = json["data"] {
