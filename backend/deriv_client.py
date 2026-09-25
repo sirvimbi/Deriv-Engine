@@ -3,6 +3,7 @@ import json
 import logging
 import ssl
 import certifi
+import requests
 import websockets
 from typing import Optional, Dict, Any, Callable
 from websockets.protocol import State
@@ -10,14 +11,16 @@ from websockets.protocol import State
 logger = logging.getLogger("DerivClient")
 
 class DerivClient:
-    def __init__(self, app_id: int = 1089):
+    """Deriv WebSocket client using the current REST OTP authentication flow."""
+
+    REST_BASE_URL = "https://api.derivws.com"
+    PUBLIC_WS_URL = "wss://ws.binaryws.com/websockets/v3"
+
+    def __init__(self, app_id: int = 0, account_type: str = "demo"):
         self.app_id = app_id
-        self.ws_urls = [
-            "wss://ws.derivws.com/websockets/v3",
-            "wss://ws.binaryws.com/websockets/v3",
-            "wss://blue.derivws.com/websockets/v3"
-        ]
+        self.account_type = account_type if account_type in ("demo", "real") else "demo"
         self.ws: Optional[Any] = None
+        self.ws_url: Optional[str] = None
         self.req_id_counter = 1
         self.pending_requests: Dict[int, asyncio.Future] = {}
         self.tick_callbacks: list = []
@@ -31,32 +34,116 @@ class DerivClient:
         self.req_id_counter += 1
         return req_id
 
-    async def connect(self):
+    def _headers(self, token: str) -> Dict[str, str]:
+        headers = {
+            "Authorization": f"Bearer {token.strip()}",
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+        if self.app_id:
+            headers["Deriv-App-ID"] = str(self.app_id)
+        return headers
+
+    def _request_json(self, method: str, path: str, token: str) -> Dict[str, Any]:
+        url = f"{self.REST_BASE_URL}{path}"
+        response = requests.request(
+            method,
+            url,
+            headers=self._headers(token),
+            timeout=15
+        )
+        try:
+            data = response.json()
+        except ValueError:
+            data = {}
+
+        if response.status_code >= 400:
+            errors = data.get("errors") or []
+            message = errors[0].get("message") if errors and isinstance(errors[0], dict) else None
+            if not message:
+                message = response.text.strip() or f"HTTP {response.status_code}"
+            raise RuntimeError(f"Deriv REST authentication failed ({response.status_code}): {message}")
+
+        return data
+
+    async def _get_authenticated_ws_url(self, token: str) -> Dict[str, Any]:
+        if not token or not token.strip():
+            raise ValueError("Deriv API token is required.")
+        if not self.app_id:
+            raise ValueError("A current Deriv App ID is required. The legacy App ID 1089 is not valid for the current authenticated API.")
+
+        accounts = await asyncio.to_thread(
+            self._request_json,
+            "GET",
+            "/trading/v1/options/accounts",
+            token
+        )
+
+        data = accounts.get("data", [])
+        if isinstance(data, dict):
+            data = [data]
+
+        matching = [
+            account for account in data
+            if str(account.get("account_type", "")).lower() == self.account_type
+        ]
+
+        if not matching:
+            raise RuntimeError(
+                f"No active {self.account_type} Options trading account was returned by Deriv. "
+                "The API token may be legacy, missing the trade scope, or the account may not be migrated."
+            )
+
+        account = matching[0]
+        account_id = account.get("account_id")
+        if not account_id:
+            raise RuntimeError("Deriv returned an account without an account_id.")
+
+        otp_response = await asyncio.to_thread(
+            self._request_json,
+            "POST",
+            f"/trading/v1/options/accounts/{account_id}/otp",
+            token
+        )
+
+        otp_data = otp_response.get("data", {})
+        ws_url = otp_data.get("url")
+        if not ws_url:
+            raise RuntimeError("Deriv OTP response did not contain a WebSocket URL.")
+
+        return {
+            "url": ws_url,
+            "account": account
+        }
+
+    async def _connect_url(self, url: str):
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+        self.ws = await websockets.connect(
+            url,
+            ssl=ssl_context,
+            proxy=None,
+            open_timeout=15,
+            ping_interval=20,
+            ping_timeout=20
+        )
+        self.ws_url = url
+        self.listen_task = asyncio.create_task(self._listen_loop())
+        logger.info("Connected to Deriv WebSocket successfully.")
+
+    async def connect(self, url: Optional[str] = None):
         if self.ws and self.ws.state is State.OPEN:
             return
-        
-        last_err = None
-        for url in self.ws_urls:
-            try:
-                logger.info(f"Attempting connection to Deriv WS at {url}...")
-                ssl_context = ssl.create_default_context(cafile=certifi.where())
-                self.ws = await websockets.connect(
-                    url,
-                    ssl=ssl_context,
-                    proxy=None,
-                    open_timeout=15,
-                    ping_interval=20,
-                    ping_timeout=20
-                )
-                self.listen_task = asyncio.create_task(self._listen_loop())
-                logger.info(f"Connected to Deriv WS successfully at {url}.")
-                return
-            except Exception as e:
-                logger.warning(f"Failed to connect to {url}: {e}")
-                last_err = e
 
-        if last_err:
-            raise last_err
+        target = url or self.ws_url
+        if not target:
+            target = self.PUBLIC_WS_URL
+
+        try:
+            logger.info(f"Attempting connection to Deriv WS at {target}...")
+            await self._connect_url(target)
+        except Exception:
+            self.ws = None
+            raise
 
     async def disconnect(self):
         if self.listen_task:
@@ -66,21 +153,30 @@ class DerivClient:
             except asyncio.CancelledError:
                 pass
             self.listen_task = None
+
         if self.ws:
-            await self.ws.close()
+            try:
+                await self.ws.close()
+            except Exception:
+                pass
             self.ws = None
+
         for future in list(self.pending_requests.values()):
             if not future.done():
                 future.cancel()
         self.pending_requests.clear()
         self.authorized = False
+        self.ws_url = None
         logger.info("Disconnected from Deriv WS.")
 
     async def send_request(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         await self.connect()
+        if not self.ws or self.ws.state is not State.OPEN:
+            raise ConnectionError("Deriv WebSocket is not connected.")
+
         req_id = self._get_req_id()
         payload["req_id"] = req_id
-        
+
         future = asyncio.get_running_loop().create_future()
         self.pending_requests[req_id] = future
 
@@ -101,11 +197,14 @@ class DerivClient:
                 msg_type = data.get("msg_type")
                 req_id = data.get("req_id")
 
-                if req_id and req_id in self.pending_requests:
-                    if not self.pending_requests[req_id].done():
-                        self.pending_requests[req_id].set_result(data)
+                if req_id is not None and req_id in self.pending_requests:
+                    future = self.pending_requests[req_id]
+                    if not future.done():
+                        if "error" in data:
+                            future.set_result(data)
+                        else:
+                            future.set_result(data)
 
-                # Handle Tick updates
                 if msg_type == "tick":
                     tick = data.get("tick")
                     if tick:
@@ -118,7 +217,6 @@ class DerivClient:
                             except Exception as e:
                                 logger.error(f"Error in tick callback: {e}")
 
-                # Handle Contract updates
                 if msg_type == "proposal_open_contract":
                     poc = data.get("proposal_open_contract")
                     if poc:
@@ -137,22 +235,38 @@ class DerivClient:
             pass
         except Exception as e:
             logger.error(f"WebSocket listen loop error: {e}")
+            for future in list(self.pending_requests.values()):
+                if not future.done():
+                    future.set_exception(ConnectionError(str(e)))
 
     async def authorize(self, token: str) -> Dict[str, Any]:
+        """Authenticate by REST Bearer token -> account lookup -> one-time WebSocket OTP."""
         if not token or not token.strip():
             raise ValueError("Deriv API token is required.")
-        response = await self.send_request({"authorize": token})
-        if "error" in response:
+
+        try:
+            auth = await self._get_authenticated_ws_url(token)
+            if self.ws:
+                await self.disconnect()
+
+            await self._connect_url(auth["url"])
+            self.authorized = True
+            self.account_info = auth["account"]
+            logger.info(
+                f"Authenticated Deriv WebSocket for {self.account_info.get('account_id', 'unknown')} "
+                f"({self.account_info.get('account_type', self.account_type)})."
+            )
+            return {"authorize": self.account_info}
+        except Exception:
             self.authorized = False
-            raise Exception(response["error"].get("message", "Authorization failed"))
-        self.authorized = True
-        self.account_info = response.get("authorize", {})
-        return response
+            raise
 
     async def subscribe_ticks(self, symbol: str, callback: Callable):
         if callback not in self.tick_callbacks:
             self.tick_callbacks.append(callback)
         response = await self.send_request({"ticks": symbol, "subscribe": 1})
+        if "error" in response:
+            raise Exception(response["error"].get("message", "Tick subscription failed"))
         return response
 
     async def unsubscribe_ticks(self, symbol: str):
@@ -177,7 +291,7 @@ class DerivClient:
             "currency": currency,
             "duration": duration,
             "duration_unit": duration_unit,
-            "symbol": symbol
+            "underlying_symbol": symbol
         }
         if barrier is not None:
             params["barrier"] = str(barrier)
@@ -187,7 +301,7 @@ class DerivClient:
             "price": amount,
             "parameters": params
         }
-        
+
         response = await self.send_request(request)
         if "error" in response:
             raise Exception(response["error"].get("message", "Contract purchase failed"))
@@ -204,6 +318,8 @@ class DerivClient:
             "contract_id": contract_id,
             "subscribe": 1
         })
+        if "error" in response:
+            raise Exception(response["error"].get("message", "Contract subscription failed"))
         return response
 
     def unsubscribe_contract(self, contract_id: int):
