@@ -87,6 +87,10 @@ public class DashboardViewModel: ObservableObject {
     }
 
     public func clearLogs() {
+        // Clear the visible dashboard immediately. The backend reset is best-effort
+        // so a stale backend cannot make the button appear broken.
+        logs.removeAll()
+        WebSocketManager.shared.newLogs.removeAll()
         Task {
             do {
                 try await APIService.shared.clearBotLogs()
