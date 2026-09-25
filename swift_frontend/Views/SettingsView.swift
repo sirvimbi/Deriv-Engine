@@ -32,6 +32,7 @@ public struct SettingsView: View {
                 .frame(maxWidth: 900, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }
+            .textSelection(.enabled)
             .background(Theme.pageBackground.ignoresSafeArea())
             .navigationTitle("Bot Settings")
             .alert("Switch to a real-money account?", isPresented: $showRealAccountConfirm) {
@@ -87,24 +88,13 @@ public struct SettingsView: View {
             }
 
             editableRow("Market Symbol") {
-                Picker("", selection: $viewModel.config.symbol) {
-                    Text("Volatility 100 Index (R_100)").tag("R_100")
-                    Text("Volatility 75 Index (R_75)").tag("R_75")
-                    Text("Volatility 50 Index (R_50)").tag("R_50")
-                    Text("Volatility 25 Index (R_25)").tag("R_25")
-                    Text("Volatility 10 Index (R_10)").tag("R_10")
-                    Text("1HZ100V Index (1HZ100V)").tag("1HZ100V")
-                }
-                .frame(width: 280)
+                NativeEditableField(text: $viewModel.config.symbol, placeholder: "e.g. R_100")
+                    .frame(width: 280, height: 26)
             }
 
             editableRow("Currency") {
-                Picker("", selection: $viewModel.config.currency) {
-                    Text("USD").tag("USD")
-                    Text("EUR").tag("EUR")
-                    Text("GBP").tag("GBP")
-                }
-                .frame(width: 180)
+                NativeEditableField(text: $viewModel.config.currency, placeholder: "e.g. USD")
+                    .frame(width: 180, height: 26)
             }
         }
     }
