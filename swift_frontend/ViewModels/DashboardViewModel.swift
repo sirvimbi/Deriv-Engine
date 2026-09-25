@@ -22,8 +22,8 @@ public class DashboardViewModel: ObservableObject {
         var pending: [(id: String, type: String, stake: Double)] = []
         var rows: [TradeLogRow] = []
 
-        let placementPattern = #"Contract #(\\d+) placed\\. Type=(DIGITUNDER|DIGITOVER|BOTH).*?Stake=\\$([0-9]+(?:\\.[0-9]+)?)"#
-        let outcomePattern = #"Trade (WON|LOST)! ([+-])\\$([0-9]+(?:\\.[0-9]+)?)"#
+        let placementPattern = #"Contract #(\d+) placed\. Type=(DIGITUNDER|DIGITOVER|BOTH).*?Stake=\$([0-9]+(?:\.[0-9]+)?)"#
+        let outcomePattern = #"Trade (WON|LOST)! ([+-])\$([0-9]+(?:\.[0-9]+)?)"#
 
         guard let placementRegex = try? NSRegularExpression(pattern: placementPattern),
               let outcomeRegex = try? NSRegularExpression(pattern: outcomePattern) else {
