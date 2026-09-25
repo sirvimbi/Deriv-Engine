@@ -147,14 +147,14 @@ public struct SettingsView: View {
 
     private var strategyCard: some View {
         settingsCard("Digit Strategy Rules", systemImage: "die.face.5.fill") {
-            dropdownRow("Under Trigger Digit") {
-                IntegerDropdown("Under Trigger Digit", value: $viewModel.config.under_trigger_digit, range: 0...9)
+            dropdownRow("Under Entry Trigger Digit") {
+                IntegerDropdown("Under Entry Trigger Digit", value: $viewModel.config.under_trigger_digit, range: 0...9)
             }
-            dropdownRow("Over Trigger Digit") {
-                IntegerDropdown("Over Trigger Digit", value: $viewModel.config.over_trigger_digit, range: 0...9)
+            dropdownRow("Over Entry Trigger Digit") {
+                IntegerDropdown("Over Entry Trigger Digit", value: $viewModel.config.over_trigger_digit, range: 0...9)
             }
-            dropdownRow("Win Prediction Digit") {
-                IntegerDropdown("Win Prediction Digit", value: $viewModel.config.win_predict_digit, range: 0...9)
+            dropdownRow("Digit Contract Barrier (Win)") {
+                IntegerDropdown("Digit Contract Barrier (Win)", value: $viewModel.config.win_predict_digit, range: 0...9)
             }
             dropdownRow("Loss Prediction Digit") {
                 IntegerDropdown("Loss Prediction Digit", value: $viewModel.config.loss_predict_digit, range: 0...9)
