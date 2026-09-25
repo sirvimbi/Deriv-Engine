@@ -93,7 +93,6 @@ def get_bot_logs():
 async def place_manual_trade(req: ManualTradeRequest):
     client = DerivClient(app_id=bot.config.app_id, account_type=bot.config.account_type)
     try:
-        await client.connect()
         await client.authorize(bot.config.api_token)
         buy_res = await client.buy_contract(
             symbol=req.symbol,
@@ -115,7 +114,6 @@ async def get_statement(limit: int = 50, token: str = None):
     api_token = token or bot.config.api_token
     client = DerivClient(app_id=bot.config.app_id)
     try:
-        await client.connect()
         await client.authorize(api_token)
         statement = await client.get_statement(limit=limit)
         await client.disconnect()
@@ -129,7 +127,6 @@ async def get_profit_table(limit: int = 50, token: str = None):
     api_token = token or bot.config.api_token
     client = DerivClient(app_id=bot.config.app_id)
     try:
-        await client.connect()
         await client.authorize(api_token)
         profit_table = await client.get_profit_table(limit=limit)
         await client.disconnect()
@@ -143,7 +140,6 @@ async def get_account_balance(token: str = None):
     api_token = token or bot.config.api_token
     client = DerivClient(app_id=bot.config.app_id)
     try:
-        await client.connect()
         await client.authorize(api_token)
         balance = await client.get_balance()
         await client.disconnect()
