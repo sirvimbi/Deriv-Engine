@@ -98,22 +98,22 @@ public struct SettingsView: View {
     private var credentialsCard: some View {
         settingsCard("Account & Credentials", systemImage: "person.crop.circle.fill") {
             editableRow("Deriv API Token") {
-                NativeEditableField(text: $viewModel.config.api_token, placeholder: "Enter your Deriv Personal Access Token", isSecure: true)
+                EditableTextField(text: $viewModel.config.api_token, placeholder: "Enter your Deriv Personal Access Token", isSecure: true)
                     .frame(minWidth: 260, maxWidth: 420, minHeight: 24)
             }
 
             editableRow("App ID") {
-                NativeEditableField(text: $viewModel.config.app_id, placeholder: "Enter current Deriv App ID")
+                EditableTextField(text: $viewModel.config.app_id, placeholder: "Enter current Deriv App ID")
                     .frame(minWidth: 180, maxWidth: 320, minHeight: 24)
             }
 
             editableRow("Market Symbol") {
-                NativeEditableField(text: $viewModel.config.symbol, placeholder: "e.g. R_100")
+                EditableTextField(text: $viewModel.config.symbol, placeholder: "e.g. R_100")
                     .frame(minWidth: 160, maxWidth: 320, minHeight: 26)
             }
 
             editableRow("Currency") {
-                NativeEditableField(text: $viewModel.config.currency, placeholder: "e.g. USD")
+                EditableTextField(text: $viewModel.config.currency, placeholder: "e.g. USD")
                     .frame(minWidth: 120, maxWidth: 220, minHeight: 26)
             }
         }
@@ -212,21 +212,21 @@ public struct SettingsView: View {
 
     private func numberRow(_ title: String, value: Binding<Double>) -> some View {
         editableRow(title) {
-            NativeNumberField(value: value, placeholder: title)
+            EditableNumberField(value: value, placeholder: title)
                 .frame(minWidth: 120, maxWidth: 220, minHeight: 26)
         }
     }
 
     private func integerRow(_ title: String, value: Binding<Int>) -> some View {
         editableRow(title) {
-            NativeIntegerField(value: value, placeholder: title)
+            EditableIntegerField(value: value, placeholder: title)
                 .frame(minWidth: 100, maxWidth: 200, minHeight: 26)
         }
     }
 
     private func editableDigitRow(_ title: String, value: Binding<Int>, range: ClosedRange<Int> = 0...9) -> some View {
         editableRow(title) {
-            NativeIntegerField(value: value, placeholder: title, range: range)
+            EditableIntegerField(value: value, placeholder: title, range: range)
                 .frame(minWidth: 100, maxWidth: 200, minHeight: 26)
         }
     }
@@ -267,148 +267,74 @@ private extension SettingsView {
     }
 }
 
-// MARK: - Native AppKit-backed fields
-//
-// SwiftUI's own TextField on macOS has long-standing quirks (bindings that
-// only update on Return, cursor jumps, etc.), so these fields wrap NSTextField
-// directly for correct native typing/selection behavior. Each field now also
-// commits the value when editing ends. This deliberately keeps SwiftUI state
-// out of AppKit's per-keystroke editing cycle, which avoids responder-chain
-// and "Publishing changes from within view updates" problems on macOS 26.
+// MARK: - SwiftUI editing controls
 
-struct NativeEditableField: NSViewRepresentable {
+/// These controls intentionally keep a local String while the field has focus.
+/// Updating a Double/Int binding on every keystroke makes empty/intermediate
+/// values impossible to represent and can cause SwiftUI to rebuild the field
+/// while macOS is processing the key event. Local drafts avoid that responder
+/// churn and allow normal typing, deletion, selection and paste on macOS 26.
+private struct EditableTextField: View {
     @Binding var text: String
     let placeholder: String
-    var isSecure: Bool = false
+    var isSecure = false
+    @State private var draft = ""
+    @FocusState private var focused: Bool
 
-    func makeCoordinator() -> Coordinator { Coordinator(binding: $text) }
-
-    func makeNSView(context: Context) -> NSTextField {
-        let field: NSTextField = isSecure ? FocusableSecureTextField() : FocusableTextField()
-        field.stringValue = text
-        field.placeholderString = placeholder
-        field.isEditable = true
-        field.isSelectable = true
-        field.isEnabled = true
-        field.usesSingleLineMode = true
-        field.lineBreakMode = .byTruncatingTail
-        field.delegate = context.coordinator
-        field.bezelStyle = .roundedBezel
-        field.focusRingType = .default
-        return field
-    }
-
-    func updateNSView(_ nsView: NSTextField, context: Context) {
-        if !context.coordinator.isEditing && nsView.stringValue != text {
-            nsView.stringValue = text
-        }
-        nsView.placeholderString = placeholder
-    }
-
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var binding: Binding<String>
-        var isEditing = false
-        init(binding: Binding<String>) { self.binding = binding }
-
-        func controlTextDidBeginEditing(_ notification: Notification) {
-            isEditing = true
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            // Keep editing entirely inside AppKit. Do not publish SwiftUI state
-            // on every keystroke; doing so can trigger a representable update
-            // while NSTextField is editing and can break the responder chain.
-        }
-
-        func controlTextDidEndEditing(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            let value = field.stringValue
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.binding.wrappedValue = value
-                self.isEditing = false
+    var body: some View {
+        Group {
+            if isSecure {
+                SecureField(placeholder, text: $draft)
+            } else {
+                TextField(placeholder, text: $draft)
             }
         }
-    }
-}
-
-final class FocusableTextField: NSTextField {
-    override var acceptsFirstResponder: Bool { true }
-    override func mouseDown(with event: NSEvent) {
-        super.mouseDown(with: event)
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.window?.makeFirstResponder(self)
+        .textFieldStyle(.roundedBorder)
+        .focused($focused)
+        .onAppear { draft = text }
+        .onChange(of: focused) { _, isFocused in
+            if isFocused { draft = text }
+            else { text = draft }
+        }
+        .onChange(of: text) { _, newValue in
+            if !focused && draft != newValue { draft = newValue }
         }
     }
 }
 
-final class FocusableSecureTextField: NSSecureTextField {
-    override var acceptsFirstResponder: Bool { true }
-    override func mouseDown(with event: NSEvent) {
-        super.mouseDown(with: event)
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.window?.makeFirstResponder(self)
-        }
-    }
-}
-
-struct NativeNumberField: NSViewRepresentable {
+private struct EditableNumberField: View {
     @Binding var value: Double
     let placeholder: String
+    @State private var draft = ""
+    @FocusState private var focused: Bool
 
-    func makeCoordinator() -> Coordinator { Coordinator(binding: $value) }
-
-    func makeNSView(context: Context) -> NSTextField {
-        let field = FocusableTextField()
-        field.stringValue = String(format: "%.2f", value)
-        field.placeholderString = placeholder
-        field.isEditable = true
-        field.isSelectable = true
-        field.isEnabled = true
-        field.usesSingleLineMode = true
-        field.delegate = context.coordinator
-        field.bezelStyle = .roundedBezel
-        field.focusRingType = .default
-        return field
-    }
-
-    func updateNSView(_ nsView: NSTextField, context: Context) {
-        guard !context.coordinator.isEditing else { return }
-        let text = String(format: "%.2f", value)
-        if nsView.stringValue != text { nsView.stringValue = text }
-    }
-
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var isEditing = false
-        var binding: Binding<Double>
-        init(binding: Binding<Double>) { self.binding = binding }
-
-        func controlTextDidBeginEditing(_ notification: Notification) { isEditing = true }
-
-        func controlTextDidChange(_ notification: Notification) {
-            // Intentionally do not write through the SwiftUI binding here.
-            // AppKit owns the live edit until focus leaves the field.
-        }
-
-        func controlTextDidEndEditing(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            let normalized = field.stringValue.replacingOccurrences(of: ",", with: ".")
-            let parsed = Double(normalized) ?? 0
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.binding.wrappedValue = parsed
-                self.isEditing = false
+    var body: some View {
+        TextField(placeholder, text: $draft)
+            .textFieldStyle(.roundedBorder)
+            .focused($focused)
+            .onAppear { draft = String(format: "%.2f", value) }
+            .onChange(of: focused) { _, isFocused in
+                if isFocused {
+                    draft = String(format: "%.2f", value)
+                } else if let parsed = Double(draft.replacingOccurrences(of: ",", with: ".")) {
+                    value = parsed
+                    draft = String(format: "%.2f", parsed)
+                } else {
+                    draft = String(format: "%.2f", value)
+                }
             }
-        }
+            .onChange(of: value) { _, newValue in
+                if !focused { draft = String(format: "%.2f", newValue) }
+            }
     }
 }
 
-struct NativeIntegerField: NSViewRepresentable {
+private struct EditableIntegerField: View {
     @Binding var value: Int
     let placeholder: String
     let range: ClosedRange<Int>
+    @State private var draft = ""
+    @FocusState private var focused: Bool
 
     init(value: Binding<Int>, placeholder: String, range: ClosedRange<Int> = Int.min...Int.max) {
         self._value = value
@@ -416,53 +342,22 @@ struct NativeIntegerField: NSViewRepresentable {
         self.range = range
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(binding: $value, range: range) }
-
-    func makeNSView(context: Context) -> NSTextField {
-        let field = FocusableTextField()
-        field.stringValue = String(value)
-        field.placeholderString = placeholder
-        field.isEditable = true
-        field.isSelectable = true
-        field.isEnabled = true
-        field.usesSingleLineMode = true
-        field.delegate = context.coordinator
-        field.bezelStyle = .roundedBezel
-        field.focusRingType = .default
-        return field
-    }
-
-    func updateNSView(_ nsView: NSTextField, context: Context) {
-        guard !context.coordinator.isEditing else { return }
-        let text = String(value)
-        if nsView.stringValue != text { nsView.stringValue = text }
-    }
-
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var isEditing = false
-        var binding: Binding<Int>
-        let range: ClosedRange<Int>
-        init(binding: Binding<Int>, range: ClosedRange<Int>) {
-            self.binding = binding
-            self.range = range
-        }
-
-        func controlTextDidBeginEditing(_ notification: Notification) { isEditing = true }
-
-        func controlTextDidChange(_ notification: Notification) {
-            // Intentionally do not publish on every keystroke. This permits
-            // select-all, delete, arrow keys and normal AppKit text editing.
-        }
-
-        func controlTextDidEndEditing(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            let parsed = Int(field.stringValue.filter { $0.isNumber || $0 == "-" }) ?? 0
-            let clamped = min(max(parsed, range.lowerBound), range.upperBound)
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.binding.wrappedValue = clamped
-                self.isEditing = false
+    var body: some View {
+        TextField(placeholder, text: $draft)
+            .textFieldStyle(.roundedBorder)
+            .focused($focused)
+            .onAppear { draft = String(value) }
+            .onChange(of: focused) { _, isFocused in
+                if isFocused {
+                    draft = String(value)
+                } else {
+                    let parsed = Int(draft.filter { $0.isNumber || $0 == "-" }) ?? value
+                    value = min(max(parsed, range.lowerBound), range.upperBound)
+                    draft = String(value)
+                }
             }
-        }
+            .onChange(of: value) { _, newValue in
+                if !focused { draft = String(newValue) }
+            }
     }
 }
