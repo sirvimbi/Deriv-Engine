@@ -13,3 +13,7 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Local Deriv Engine runtime settings (may contain API credentials)
+backend/trading_config.json
+backend/trading_config.tmp

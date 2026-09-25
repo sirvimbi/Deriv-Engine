@@ -16,33 +16,22 @@ public struct ManualTradeView: View {
                                 .frame(minWidth: 220, maxWidth: 360, minHeight: 26)
                         }
 
-                        editableRow("Contract Type") {
-                            Picker("", selection: $viewModel.contractType) {
-                                Text("DIGIT UNDER").tag("DIGITUNDER")
-                                Text("DIGIT OVER").tag("DIGITOVER")
-                                Text("RISE (CALL)").tag("CALL")
-                                Text("FALL (PUT)").tag("PUT")
-                                Text("DIGIT MATCH").tag("DIGITMATCH")
-                                Text("DIGIT DIFFER").tag("DIGITDIFF")
-                            }
-                            .frame(minWidth: 180, maxWidth: 260)
+                        dropdownRow("Contract Type") {
+                            ManualContractDropdown(value: $viewModel.contractType)
                         }
 
-                        editableRow("Stake Amount ($)") {
-                            NativeNumberInput(value: $viewModel.amount, placeholder: "Stake amount")
-                                .frame(minWidth: 140, maxWidth: 220, minHeight: 26)
+                        dropdownRow("Stake Amount ($)") {
+                            DoubleDropdown("Stake Amount", value: $viewModel.amount, range: 0...100)
                         }
 
                         if viewModel.contractType.contains("DIGIT") {
-                            editableRow("Prediction Digit") {
-                                NativeIntegerInput(value: $viewModel.prediction, placeholder: "0-9", range: 0...9)
-                                    .frame(minWidth: 140, maxWidth: 220, minHeight: 26)
+                            dropdownRow("Prediction Digit") {
+                                IntegerDropdown("Prediction Digit", value: $viewModel.prediction, range: 0...9)
                             }
                         }
 
-                        editableRow("Duration (Ticks)") {
-                            NativeIntegerInput(value: $viewModel.duration, placeholder: "1-10", range: 1...10)
-                                .frame(minWidth: 140, maxWidth: 220, minHeight: 26)
+                        dropdownRow("Duration (Ticks)") {
+                            IntegerDropdown("Duration", value: $viewModel.duration, range: 0...50)
                         }
 
                         editableRow("Currency") {
@@ -74,12 +63,8 @@ public struct ManualTradeView: View {
                         .disabled(viewModel.isSubmitting)
 
                         if let result = viewModel.lastResult {
-                            Text(result)
-                                .font(.caption)
-                                
-                                .foregroundColor(Theme.profit)
+                            Text(result).font(.caption).foregroundColor(Theme.profit)
                         }
-
                         if let err = viewModel.errorMessage {
                             ErrorBanner(err)
                         }
@@ -89,10 +74,6 @@ public struct ManualTradeView: View {
                 .frame(maxWidth: 900, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }
-            // NOTE: no blanket  on this ScrollView —
-            // see the comment in SettingsView.swift. It was blocking keyboard
-            // input into the native fields above. Selection is applied to
-            // the individual label/preview Text views below instead.
             .background(Theme.pageBackground.ignoresSafeArea())
             .navigationTitle("Manual Trade")
             .toolbar {
@@ -105,49 +86,33 @@ public struct ManualTradeView: View {
         }
     }
 
-    private func copyAllManualTrade() {
-        // Build a human-readable summary of the current manual trade configuration
-        var lines: [String] = []
-        lines.append("Manual Trade Configuration")
-        lines.append("Symbol: \(viewModel.symbol)")
-        lines.append("Contract Type: \(viewModel.contractType)")
-        lines.append(String(format: "Stake: $%.2f", viewModel.amount))
-        lines.append("Duration: \(viewModel.duration) tick\(viewModel.duration == 1 ? "" : "s")")
-        lines.append("Currency: \(viewModel.currency)")
-        if viewModel.contractType.contains("DIGIT") {
-            lines.append("Prediction: \(viewModel.prediction)")
-        }
-
-        let summary = lines.joined(separator: "\n")
-
-        // Copy to macOS pasteboard
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(summary, forType: .string)
-    }
-
     private var tradeSummaryRow: some View {
         HStack(spacing: 10) {
-            Image(systemName: "doc.text.magnifyingglass")
-                .foregroundColor(Theme.info)
+            Image(systemName: "doc.text.magnifyingglass").foregroundColor(Theme.info)
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(viewModel.contractType) · \(viewModel.symbol)")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    
+                Text("\(viewModel.contractType) · \(viewModel.symbol)").font(.subheadline).fontWeight(.semibold)
                 Text("Stake $\(String(format: "%.2f", viewModel.amount)) · \(viewModel.duration)t · \(viewModel.currency)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    
+                    .font(.caption).foregroundColor(.secondary)
                 if viewModel.contractType.contains("DIGIT") {
-                    Text("Prediction: \(viewModel.prediction)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        
+                    Text("Prediction: \(viewModel.prediction)").font(.caption).foregroundColor(.secondary)
                 }
             }
             Spacer(minLength: 0)
         }
+    }
+
+    private func copyAllManualTrade() {
+        var lines = [
+            "Manual Trade Configuration",
+            "Symbol: \(viewModel.symbol)",
+            "Contract Type: \(viewModel.contractType)",
+            String(format: "Stake: $%.2f", viewModel.amount),
+            "Duration: \(viewModel.duration) tick\(viewModel.duration == 1 ? "" : "s")",
+            "Currency: \(viewModel.currency)"
+        ]
+        if viewModel.contractType.contains("DIGIT") { lines.append("Prediction: \(viewModel.prediction)") }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
     }
 
     private func settingsCard<Content: View>(_ title: String, systemImage: String, @ViewBuilder content: () -> Content) -> some View {
@@ -163,9 +128,15 @@ public struct ManualTradeView: View {
 
     private func editableRow<Content: View>(_ title: String, @ViewBuilder control: () -> Content) -> some View {
         HStack(alignment: .center, spacing: 16) {
-            Text(title)
-                .frame(minWidth: 180, alignment: .leading)
-                
+            Text(title).frame(minWidth: 180, alignment: .leading)
+            Spacer(minLength: 8)
+            control()
+        }
+    }
+
+    private func dropdownRow<Content: View>(_ title: String, @ViewBuilder control: () -> Content) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            Text(title).frame(minWidth: 180, alignment: .leading)
             Spacer(minLength: 8)
             control()
         }

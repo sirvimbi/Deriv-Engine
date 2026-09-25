@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import time
+from pathlib import Path
 from typing import List, Dict, Any
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,7 +30,25 @@ app.add_middleware(
 
 # Global bot instance
 default_config = TradingConfig()
-bot = TradingBot(default_config)
+CONFIG_FILE = Path(__file__).resolve().parent / "trading_config.json"
+
+def load_persisted_config() -> TradingConfig:
+    if not CONFIG_FILE.exists():
+        return default_config
+    try:
+        with CONFIG_FILE.open("r", encoding="utf-8") as fh:
+            return TradingConfig.parse_obj(json.load(fh))
+    except Exception as exc:
+        logger.warning("Unable to load persisted trading config: %s", exc)
+        return default_config
+
+def persist_config(config: TradingConfig):
+    tmp = CONFIG_FILE.with_suffix(".tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        json.dump(config.dict(), fh, indent=2)
+    tmp.replace(CONFIG_FILE)
+
+bot = TradingBot(load_persisted_config())
 
 # Connected WebSocket Clients
 connected_websockets: List[WebSocket] = []
@@ -92,7 +111,9 @@ def get_config():
 
 @app.post("/api/config", response_model=TradingConfig)
 async def update_config(config: TradingConfig):
+    # Pydantic has already validated all user-selectable ranges before this point.
     bot.update_config(config)
+    persist_config(bot.config)
     return bot.config
 
 @app.post("/api/bot/start")

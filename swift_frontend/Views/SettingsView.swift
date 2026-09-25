@@ -33,14 +33,6 @@ public struct SettingsView: View {
                 .frame(maxWidth: 900, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }
-            // NOTE: deliberately NOT applying  to this
-            // whole ScrollView. On macOS that modifier installs a selection
-            // gesture over everything beneath it, which was intercepting
-            // clicks meant for the NSViewRepresentable text fields below and
-            // is why typing stopped working in every field on this screen.
-            // Instead, selection is enabled individually on the plain label/
-            // caption Text views further down, which is all that's needed
-            // for "select and copy" without blocking keyboard input.
             .background(Theme.pageBackground.ignoresSafeArea())
             .navigationTitle("Bot Settings")
             .toolbar {
@@ -67,7 +59,9 @@ public struct SettingsView: View {
                 Button("Switch to Real Account", role: .destructive) {
                     viewModel.config.account_type = "real"
                 }
-                Button("Stay on Demo", role: .cancel) { selectedAccountIsDemo = true }
+                Button("Stay on Demo", role: .cancel) {
+                    selectedAccountIsDemo = true
+                }
             } message: {
                 Text("The bot will place trades using real funds from your Deriv account. Make sure your risk settings are correct before switching.")
             }
@@ -90,28 +84,25 @@ public struct SettingsView: View {
                      : "Live mode — trades use real funds from your Deriv account.")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    
             }
         }
     }
 
+    // Credentials intentionally remain text inputs as requested.
     private var credentialsCard: some View {
         settingsCard("Account & Credentials", systemImage: "person.crop.circle.fill") {
             editableRow("Deriv API Token") {
                 NativeTextInput(text: $viewModel.config.api_token, placeholder: "Enter your Deriv Personal Access Token", secure: true)
                     .frame(minWidth: 260, maxWidth: 420, minHeight: 24)
             }
-
             editableRow("App ID") {
                 NativeTextInput(text: $viewModel.config.app_id, placeholder: "Enter current Deriv App ID")
                     .frame(minWidth: 180, maxWidth: 320, minHeight: 24)
             }
-
             editableRow("Market Symbol") {
                 NativeTextInput(text: $viewModel.config.symbol, placeholder: "e.g. R_100")
                     .frame(minWidth: 160, maxWidth: 320, minHeight: 26)
             }
-
             editableRow("Currency") {
                 NativeTextInput(text: $viewModel.config.currency, placeholder: "e.g. USD")
                     .frame(minWidth: 120, maxWidth: 220, minHeight: 26)
@@ -121,43 +112,62 @@ public struct SettingsView: View {
 
     private var stakeCard: some View {
         settingsCard("Stake & Martingale Settings", systemImage: "chart.line.uptrend.xyaxis") {
-            numberRow("Base Stake ($)", value: $viewModel.config.base_stake)
-            numberRow("Max Stake Limit ($)", value: $viewModel.config.max_stake)
-            numberRow("Martingale Multiplier", value: $viewModel.config.martingale)
+            dropdownRow("Base Stake ($)") {
+                DoubleDropdown("Base Stake", value: $viewModel.config.base_stake, range: 0...100)
+            }
+            dropdownRow("Max Stake Limit ($)") {
+                DoubleDropdown("Max Stake Limit", value: $viewModel.config.max_stake, range: 0...1000)
+            }
+            dropdownRow("Martingale Multiplier") {
+                DoubleDropdown("Martingale Multiplier", value: $viewModel.config.martingale, range: 0...50, step: 0.1)
+            }
         }
     }
 
     private var riskCard: some View {
         settingsCard("Risk & Profit Targets", systemImage: "shield.fill") {
-            numberRow("Take Profit ($)", value: $viewModel.config.take_profit)
-            numberRow("Stop Loss ($)", value: $viewModel.config.stop_loss)
-            integerRow("Max Runs / Trades", value: $viewModel.config.max_runs)
-            integerRow("Max Loss Streak", value: $viewModel.config.max_loss_streak)
+            dropdownRow("Take Profit ($)") {
+                IntegerDropdown("Take Profit", value: takeProfitInt, range: 0...10000)
+            }
+            dropdownRow("Max Runs / Trades") {
+                IntegerDropdown("Max Runs / Trades", value: $viewModel.config.max_runs, range: 0...500)
+            }
+            dropdownRow("Max Loss Streak") {
+                IntegerDropdown("Max Loss Streak", value: $viewModel.config.max_loss_streak, range: 0...50)
+            }
         }
+    }
+
+    private var takeProfitInt: Binding<Int> {
+        Binding(
+            get: { Int(viewModel.config.take_profit.rounded()) },
+            set: { viewModel.config.take_profit = Double($0) }
+        )
     }
 
     private var strategyCard: some View {
         settingsCard("Digit Strategy Rules", systemImage: "die.face.5.fill") {
-            editableDigitRow("Under Trigger Digit", value: $viewModel.config.under_trigger_digit)
-            editableDigitRow("Over Trigger Digit", value: $viewModel.config.over_trigger_digit)
-            editableDigitRow("Win Prediction Digit", value: $viewModel.config.win_predict_digit)
-            editableDigitRow("Loss Prediction Digit", value: $viewModel.config.loss_predict_digit)
-            editableDigitRow("Recovery Wins Target", value: $viewModel.config.recovery_wins_required, range: 1...10)
-
-            editableRow("Allowed Contract Types") {
-                Picker("", selection: $viewModel.config.contract_type_mode) {
-                    Text("DIGITUNDER").tag("DIGITUNDER")
-                    Text("DIGITOVER").tag("DIGITOVER")
-                    Text("Both").tag("BOTH")
-                }
-                .pickerStyle(.segmented)
-                .frame(minWidth: 240, maxWidth: 340)
+            dropdownRow("Under Trigger Digit") {
+                IntegerDropdown("Under Trigger Digit", value: $viewModel.config.under_trigger_digit, range: 0...9)
             }
-
-            Text("Controls which digit contract types the strategy is allowed to place. Both preserves the existing UNDER/OVER recovery behavior.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                
+            dropdownRow("Over Trigger Digit") {
+                IntegerDropdown("Over Trigger Digit", value: $viewModel.config.over_trigger_digit, range: 0...9)
+            }
+            dropdownRow("Win Prediction Digit") {
+                IntegerDropdown("Win Prediction Digit", value: $viewModel.config.win_predict_digit, range: 0...9)
+            }
+            dropdownRow("Loss Prediction Digit") {
+                IntegerDropdown("Loss Prediction Digit", value: $viewModel.config.loss_predict_digit, range: 0...9)
+            }
+            dropdownRow("Recovery Win Target") {
+                IntegerDropdown("Recovery Win Target", value: $viewModel.config.recovery_wins_required, range: 0...50)
+            }
+            dropdownRow("Allowed Contracts") {
+                ContractModeDropdown(value: $viewModel.config.contract_type_mode)
+            }
+            dropdownRow("Ticks") {
+                IntegerDropdown("Ticks", value: $viewModel.config.duration, range: 0...50)
+            }
         }
     }
 
@@ -202,32 +212,17 @@ public struct SettingsView: View {
 
     private func editableRow<Content: View>(_ title: String, @ViewBuilder control: () -> Content) -> some View {
         HStack(alignment: .center, spacing: 16) {
-            Text(title)
-                .frame(minWidth: 180, alignment: .leading)
-                
+            Text(title).frame(minWidth: 180, alignment: .leading)
             Spacer(minLength: 8)
             control()
         }
     }
 
-    private func numberRow(_ title: String, value: Binding<Double>) -> some View {
-        editableRow(title) {
-            NativeNumberInput(value: value, placeholder: title)
-                .frame(minWidth: 120, maxWidth: 220, minHeight: 26)
-        }
-    }
-
-    private func integerRow(_ title: String, value: Binding<Int>) -> some View {
-        editableRow(title) {
-            NativeIntegerInput(value: value, placeholder: title)
-                .frame(minWidth: 100, maxWidth: 200, minHeight: 26)
-        }
-    }
-
-    private func editableDigitRow(_ title: String, value: Binding<Int>, range: ClosedRange<Int> = 0...9) -> some View {
-        editableRow(title) {
-            NativeIntegerInput(value: value, placeholder: title, range: range)
-                .frame(minWidth: 100, maxWidth: 200, minHeight: 26)
+    private func dropdownRow<Content: View>(_ title: String, @ViewBuilder control: () -> Content) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            Text(title).frame(minWidth: 220, alignment: .leading)
+            Spacer(minLength: 8)
+            control()
         }
     }
 }
@@ -235,10 +230,8 @@ public struct SettingsView: View {
 private extension SettingsView {
     func copyAllSettings() {
         let c = viewModel.config
-        let maskedToken = c.api_token.isEmpty
-            ? "(not set)"
-            : String(repeating: "•", count: max(0, c.api_token.count - 4)) + c.api_token.suffix(4)
-        let lines: [String] = [
+        let maskedToken = c.api_token.isEmpty ? "(not set)" : String(repeating: "•", count: max(0, c.api_token.count - 4)) + c.api_token.suffix(4)
+        let lines = [
             "DERIV ENGINE — BOT SETTINGS",
             "Account Type: \(c.account_type.uppercased())",
             "API Token: \(maskedToken)",
@@ -246,12 +239,11 @@ private extension SettingsView {
             "Market Symbol: \(c.symbol)",
             "Currency: \(c.currency)",
             "",
-            String(format: "Base Stake: $%.2f", c.base_stake),
-            String(format: "Max Stake Limit: $%.2f", c.max_stake),
+            "Base Stake: $\(c.base_stake)",
+            "Max Stake Limit: $\(c.max_stake)",
             "Martingale Multiplier: \(c.martingale)x",
             "",
-            String(format: "Take Profit: $%.2f", c.take_profit),
-            String(format: "Stop Loss: $%.2f", c.stop_loss),
+            "Take Profit: $\(c.take_profit)",
             "Max Runs / Trades: \(c.max_runs)",
             "Max Loss Streak: \(c.max_loss_streak)",
             "",
@@ -259,8 +251,9 @@ private extension SettingsView {
             "Over Trigger Digit: \(c.over_trigger_digit)",
             "Win Prediction Digit: \(c.win_predict_digit)",
             "Loss Prediction Digit: \(c.loss_predict_digit)",
-            "Recovery Wins Target: \(c.recovery_wins_required)",
-            "Allowed Contract Types: \(c.contract_type_mode)"
+            "Recovery Win Target: \(c.recovery_wins_required)",
+            "Allowed Contracts: \(c.contract_type_mode)",
+            "Ticks: \(c.duration)"
         ]
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
