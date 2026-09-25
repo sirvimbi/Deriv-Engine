@@ -312,25 +312,95 @@ class DerivClient:
         self.tick_callbacks.clear()
         return response
 
-    async def buy_contract(self, symbol: str, contract_type: str, amount: float, duration: int = 1, duration_unit: str = "t", barrier: Optional[int] = None, currency: str = "USD") -> Dict[str, Any]:
-        normalized_amount = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    async def buy_contract(
+        self,
+        symbol: str,
+        contract_type: str,
+        amount: float,
+        duration: int = 1,
+        duration_unit: str = "t",
+        barrier: Optional[int] = None,
+        currency: str = "USD"
+    ) -> Dict[str, Any]:
+        """
+        Current Deriv Options flow:
+        1. Request a proposal for the exact stake.
+        2. Buy that proposal using its proposal ID.
+
+        The previous implementation sent the old direct-buy shape
+        {"buy": 1, "price": ..., "parameters": ...}. The current API
+        workflow documents buying with a proposal ID. Using the proposal
+        also gives us Deriv's actual ask_price instead of treating the
+        stake as the contract purchase price.
+        """
+        normalized_amount = Decimal(str(amount)).quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP
+        )
         if normalized_amount < Decimal("0.01"):
             raise ValueError("Trade amount must be at least 0.01.")
-        params = {
+
+        proposal_params: Dict[str, Any] = {
+            "proposal": 1,
             "amount": float(normalized_amount),
             "basis": "stake",
             "contract_type": contract_type,
             "currency": currency,
-            "duration": duration,
+            "duration": int(duration),
             "duration_unit": duration_unit,
             "underlying_symbol": symbol
         }
         if barrier is not None:
-            params["barrier"] = str(barrier)
+            proposal_params["barrier"] = str(barrier)
 
-        response = await self.send_request({"buy": 1, "price": float(normalized_amount), "parameters": params})
+        proposal_response = await self.send_request(proposal_params)
+        if "error" in proposal_response:
+            raise Exception(
+                proposal_response["error"].get(
+                    "message", "Contract proposal failed"
+                )
+            )
+
+        proposal = proposal_response.get("proposal") or {}
+        proposal_id = proposal.get("id")
+        if not proposal_id:
+            raise Exception("Deriv returned a proposal without a proposal ID.")
+
+        ask_price_raw = proposal.get("ask_price")
+        if ask_price_raw is None:
+            # A proposal without ask_price cannot be safely purchased.
+            raise Exception("Deriv proposal did not return an ask_price.")
+
+        # Deriv's buy price accepts no more than two decimal places.
+        # Round UP so the maximum price is never below Deriv's quoted ask.
+        buy_price_decimal = Decimal(str(ask_price_raw)).quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP
+        )
+        if buy_price_decimal < Decimal("0.01"):
+            raise Exception("Deriv returned an invalid proposal ask_price.")
+
+        # Keep the JSON numeric representation constrained to two decimals.
+        buy_price = float(f"{buy_price_decimal:.2f}")
+
+        logger.info(
+            "Buying proposal %s | stake=%s | ask_price=%s | buy_price=%s",
+            proposal_id,
+            f"{normalized_amount:.2f}",
+            str(ask_price_raw),
+            f"{buy_price_decimal:.2f}"
+        )
+
+        response = await self.send_request({
+            "buy": str(proposal_id),
+            "price": buy_price
+        })
         if "error" in response:
-            raise Exception(response["error"].get("message", "Contract purchase failed"))
+            raise Exception(
+                response["error"].get(
+                    "message", "Contract purchase failed"
+                )
+            )
         return response.get("buy", {})
 
     async def subscribe_contract(self, contract_id: int, callback: Callable):
