@@ -86,6 +86,11 @@ class TradingBot:
             # Do not call connect() first: that falls back to the legacy WebSocket host and can return HTTP 520.
             await self.client.authorize(self.config.api_token)
             await self.client.subscribe_balance(self._on_balance)
+            try:
+                initial_balance = await self.client.get_balance()
+                await self._on_balance(initial_balance)
+            except Exception as balance_error:
+                self.add_log("warn", f"Initial account balance unavailable: {balance_error}")
         except Exception as e:
             self.add_log("error", f"Authorization failed: {str(e)}")
             raise e
@@ -327,6 +332,12 @@ class TradingBot:
             await self.stop(f"Max runs limit reached ({self.runs} >= {self.config.max_runs})")
 
         self.is_trade_in_progress = False
+
+        try:
+            settled_balance = await self.client.get_balance()
+            await self._on_balance(settled_balance)
+        except Exception as balance_error:
+            logger.debug(f"Unable to refresh settled account balance: {balance_error}")
 
         if self.status_broadcast_callback:
             try:
