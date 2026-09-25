@@ -48,7 +48,7 @@ public struct SettingsView: View {
                 Button("Switch to Real Account", role: .destructive) {
                     viewModel.config.account_type = "real"
                 }
-                Button("Stay on Demo", role: .cancel) {}
+                Button("Stay on Demo", role: .cancel) { selectedAccountIsDemo = true }
             } message: {
                 Text("The bot will place trades using real funds from your Deriv account. Make sure your risk settings are correct before switching.")
             }
