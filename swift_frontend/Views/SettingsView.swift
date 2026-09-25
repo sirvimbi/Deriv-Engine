@@ -8,119 +8,30 @@ public struct SettingsView: View {
 
     public var body: some View {
         NavigationStack {
-            Form {
-                accountModeSection
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    accountModeCard
+                    credentialsCard
+                    stakeCard
+                    riskCard
+                    strategyCard
+                    actionsCard
 
-                Section {
-                    HStack {
-                        Image(systemName: "key.fill").foregroundColor(Theme.info).frame(width: 22)
-                        SecureField("Deriv API Token", text: $viewModel.config.api_token)
+                    if let msg = viewModel.errorMessage {
+                        ErrorBanner(msg)
                     }
 
-                    HStack {
-                        Image(systemName: "number").foregroundColor(Theme.info).frame(width: 22)
-                        Text("App ID")
-                        Spacer()
-                        TextField("App ID", value: $viewModel.config.app_id, formatter: NumberFormatter())
-                            .multilineTextAlignment(.trailing)
-                            .keyboardTypeCompat(.numberPad)
-                    }
-
-                    Picker("Market Symbol", selection: $viewModel.config.symbol) {
-                        Text("Volatility 100 Index (R_100)").tag("R_100")
-                        Text("Volatility 75 Index (R_75)").tag("R_75")
-                        Text("Volatility 50 Index (R_50)").tag("R_50")
-                        Text("Volatility 25 Index (R_25)").tag("R_25")
-                        Text("Volatility 10 Index (R_10)").tag("R_10")
-                        Text("1HZ100V Index (1HZ100V)").tag("1HZ100V")
-                    }
-
-                    Picker("Currency", selection: $viewModel.config.currency) {
-                        Text("USD").tag("USD")
-                        Text("EUR").tag("EUR")
-                        Text("GBP").tag("GBP")
-                    }
-                } header: {
-                    Label("Account & Credentials", systemImage: "person.crop.circle.fill")
-                }
-
-                Section {
-                    labeledNumberField("Base Stake ($)", value: $viewModel.config.base_stake)
-                    labeledNumberField("Max Stake Limit ($)", value: $viewModel.config.max_stake)
-                    labeledNumberField("Martingale Multiplier", value: $viewModel.config.martingale)
-                } header: {
-                    Label("Stake & Martingale Settings", systemImage: "chart.line.uptrend.xyaxis")
-                }
-
-                Section {
-                    labeledNumberField("Take Profit ($)", value: $viewModel.config.take_profit)
-                    labeledNumberField("Stop Loss ($)", value: $viewModel.config.stop_loss)
-
-                    HStack {
-                        Text("Max Runs / Trades")
-                        Spacer()
-                        TextField("Max Runs", value: $viewModel.config.max_runs, formatter: NumberFormatter())
-                            .multilineTextAlignment(.trailing)
-                            .keyboardTypeCompat(.numberPad)
-                    }
-
-                    HStack {
-                        Text("Max Loss Streak")
-                        Spacer()
-                        TextField("Max Loss Streak", value: $viewModel.config.max_loss_streak, formatter: NumberFormatter())
-                            .multilineTextAlignment(.trailing)
-                            .keyboardTypeCompat(.numberPad)
-                    }
-                } header: {
-                    Label("Risk & Profit Targets", systemImage: "shield.fill")
-                }
-
-                Section {
-                    Stepper("Under Trigger Digit: \(viewModel.config.under_trigger_digit)", value: $viewModel.config.under_trigger_digit, in: 0...9)
-                    Stepper("Over Trigger Digit: \(viewModel.config.over_trigger_digit)", value: $viewModel.config.over_trigger_digit, in: 0...9)
-                    Stepper("Win Prediction Digit: \(viewModel.config.win_predict_digit)", value: $viewModel.config.win_predict_digit, in: 0...9)
-                    Stepper("Loss Prediction Digit: \(viewModel.config.loss_predict_digit)", value: $viewModel.config.loss_predict_digit, in: 0...9)
-                    Stepper("Recovery Wins Target: \(viewModel.config.recovery_wins_required)", value: $viewModel.config.recovery_wins_required, in: 1...10)
-                } header: {
-                    Label("Digit Strategy Rules", systemImage: "die.face.5.fill")
-                }
-
-                Section {
-                    Button(action: { viewModel.saveConfig() }) {
-                        HStack {
-                            Spacer()
-                            if viewModel.isSaving {
-                                ProgressView()
-                            } else {
-                                Image(systemName: "square.and.arrow.down.fill")
-                                Text("Save Settings").fontWeight(.bold)
-                            }
-                            Spacer()
-                        }
-                    }
-                    .foregroundColor(.white)
-                    .listRowBackground(Theme.brandStart)
-
-                    Button(role: .destructive, action: { viewModel.resetToDefaults() }) {
-                        HStack {
-                            Spacer()
-                            Text("Reset All to Defaults")
-                            Spacer()
-                        }
-                    }
-                }
-
-                if let msg = viewModel.errorMessage {
-                    Section { ErrorBanner(msg).listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
-                }
-
-                if viewModel.saveSuccess {
-                    Section {
+                    if viewModel.saveSuccess {
                         Label("Settings saved successfully!", systemImage: "checkmark.circle.fill")
                             .foregroundColor(Theme.profit)
+                            .padding(.horizontal, 4)
                     }
                 }
+                .padding(20)
+                .frame(maxWidth: 900, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
+            .background(Theme.pageBackground.ignoresSafeArea())
             .navigationTitle("Bot Settings")
             .alert(
                 "Switch to a real-money account?",
@@ -131,23 +42,19 @@ public struct SettingsView: View {
                 }
                 Button("Stay on Demo", role: .cancel) {}
             } message: {
-                Text("The bot will place trades using real funds from your Deriv account. Make sure your risk settings below are correct before switching.")
-            } message: {
-                Text("The bot will place trades using real funds from your Deriv account. Make sure your risk settings below are correct before switching.")
+                Text("The bot will place trades using real funds from your Deriv account. Make sure your risk settings are correct before switching.")
             }
         }
     }
 
-    // MARK: Account mode switcher
-
-    private var accountModeSection: some View {
-        Section {
+    private var accountModeCard: some View {
+        settingsCard("Trading Account", systemImage: "creditcard.fill") {
             Picker("Account Mode", selection: Binding(
                 get: { viewModel.config.isDemo },
                 set: { newIsDemo in
                     if newIsDemo {
                         viewModel.config.account_type = "demo"
-                    } else {
+                    } else if viewModel.config.account_type != "real" {
                         showRealAccountConfirm = true
                     }
                 }
@@ -156,7 +63,6 @@ public struct SettingsView: View {
                 Text("Real").tag(false)
             }
             .pickerStyle(.segmented)
-            .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
 
             HStack(spacing: 8) {
                 Image(systemName: viewModel.config.isDemo ? "info.circle.fill" : "exclamationmark.triangle.fill")
@@ -166,21 +72,168 @@ public struct SettingsView: View {
                      : "Live mode — trades use real funds from your Deriv account.")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-        } header: {
-            Label("Trading Account", systemImage: "creditcard.fill")
         }
     }
 
-    @ViewBuilder
-    private func labeledNumberField(_ title: String, value: Binding<Double>) -> some View {
+    private var credentialsCard: some View {
+        settingsCard("Account & Credentials", systemImage: "person.crop.circle.fill") {
+            editableRow("Deriv API Token") {
+                SecureField("Paste your Deriv API token", text: $viewModel.config.api_token)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            editableRow("App ID") {
+                TextField("App ID", value: $viewModel.config.app_id, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 180)
+            }
+
+            editableRow("Market Symbol") {
+                Picker("", selection: $viewModel.config.symbol) {
+                    Text("Volatility 100 Index (R_100)").tag("R_100")
+                    Text("Volatility 75 Index (R_75)").tag("R_75")
+                    Text("Volatility 50 Index (R_50)").tag("R_50")
+                    Text("Volatility 25 Index (R_25)").tag("R_25")
+                    Text("Volatility 10 Index (R_10)").tag("R_10")
+                    Text("1HZ100V Index (1HZ100V)").tag("1HZ100V")
+                }
+                .frame(width: 280)
+            }
+
+            editableRow("Currency") {
+                Picker("", selection: $viewModel.config.currency) {
+                    Text("USD").tag("USD")
+                    Text("EUR").tag("EUR")
+                    Text("GBP").tag("GBP")
+                }
+                .frame(width: 180)
+            }
+        }
+    }
+
+    private var stakeCard: some View {
+        settingsCard("Stake & Martingale Settings", systemImage: "chart.line.uptrend.xyaxis") {
+            numberRow("Base Stake ($)", value: $viewModel.config.base_stake)
+            numberRow("Max Stake Limit ($)", value: $viewModel.config.max_stake)
+            numberRow("Martingale Multiplier", value: $viewModel.config.martingale)
+        }
+    }
+
+    private var riskCard: some View {
+        settingsCard("Risk & Profit Targets", systemImage: "shield.fill") {
+            numberRow("Take Profit ($)", value: $viewModel.config.take_profit)
+            numberRow("Stop Loss ($)", value: $viewModel.config.stop_loss)
+            integerRow("Max Runs / Trades", value: $viewModel.config.max_runs)
+            integerRow("Max Loss Streak", value: $viewModel.config.max_loss_streak)
+        }
+    }
+
+    private var strategyCard: some View {
+        settingsCard("Digit Strategy Rules", systemImage: "die.face.5.fill") {
+            stepperRow("Under Trigger Digit", value: $viewModel.config.under_trigger_digit)
+            stepperRow("Over Trigger Digit", value: $viewModel.config.over_trigger_digit)
+            stepperRow("Win Prediction Digit", value: $viewModel.config.win_predict_digit)
+            stepperRow("Loss Prediction Digit", value: $viewModel.config.loss_predict_digit)
+            stepperRow("Recovery Wins Target", value: $viewModel.config.recovery_wins_required, range: 1...10)
+        }
+    }
+
+    private var actionsCard: some View {
+        VStack(spacing: 10) {
+            Button(action: { viewModel.saveConfig() }) {
+                HStack {
+                    Spacer()
+                    if viewModel.isSaving {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "square.and.arrow.down.fill")
+                        Text("Save Settings").fontWeight(.bold)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 10)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Theme.brandStart)
+            .disabled(viewModel.isSaving)
+
+            Button(role: .destructive, action: { viewModel.resetToDefaults() }) {
+                Text("Reset All to Defaults")
+            }
+            .buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 4)
+    }
+
+    private func settingsCard<Content: View>(
+        _ title: String,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label(title, systemImage: systemImage)
+                .font(.headline)
+
+            content()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.cornerRadiusLarge, style: .continuous)
+                .fill(Theme.cardBackground(.light))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.cornerRadiusLarge, style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    private func editableRow<Content: View>(
+        _ title: String,
+        @ViewBuilder control: () -> Content
+    ) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            Text(title)
+                .frame(minWidth: 180, alignment: .leading)
+            Spacer(minLength: 8)
+            control()
+        }
+    }
+
+    private func numberRow(_ title: String, value: Binding<Double>) -> some View {
+        editableRow(title) {
+            TextField(title, value: value, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 180)
+        }
+    }
+
+    private func integerRow(_ title: String, value: Binding<Int>) -> some View {
+        editableRow(title) {
+            TextField(title, value: value, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 180)
+        }
+    }
+
+    private func stepperRow(
+        _ title: String,
+        value: Binding<Int>,
+        range: ClosedRange<Int> = 0...9
+    ) -> some View {
         HStack {
             Text(title)
             Spacer()
-            TextField(title, value: value, format: .number)
-                .multilineTextAlignment(.trailing)
-                .keyboardTypeCompat(.decimalPad)
+            Stepper(value: value, in: range) {
+                Text("\(value.wrappedValue)")
+                    .fontWeight(.semibold)
+                    .frame(minWidth: 32)
+            }
+            .fixedSize()
         }
     }
 }
