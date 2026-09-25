@@ -22,6 +22,7 @@ class TradingConfig(BaseModel):
     over_trigger_digit: int = Field(default=8, ge=0, le=9, description="Digit Trigger for DIGITOVER when stake > baseStake (0-9)")
     win_predict_digit: int = Field(default=8, ge=0, le=9, description="Prediction Digit on Win (0-9)")
     loss_predict_digit: int = Field(default=3, ge=0, le=9, description="Prediction Digit on Loss (0-9)")
+    recovery_win_predict_digit: int = Field(default=3, ge=0, le=9, description="Prediction Digit during recovery win target cycle (0-9)")
     duration: int = Field(default=1, ge=0, le=50, description="Trade Duration in ticks (0-50)")
     duration_unit: str = Field(default="t", description="Duration Unit ('t' for ticks, 's' for seconds)")
     currency: str = Field(default="USD", description="Currency Code")
