@@ -23,6 +23,7 @@ class TradingBot:
         self.recovery_win_count = 0
         self.in_recovery_cycle = False
         self.recovery_prediction_active = False
+        self.active_contract_type: Optional[str] = None
         
         # Reporting / Metrics
         self.total_profit = 0.0
@@ -125,6 +126,7 @@ class TradingBot:
         self.recovery_win_count = 0
         self.in_recovery_cycle = False
         self.recovery_prediction_active = False
+        self.active_contract_type = None
         self.total_profit = 0.0
         self.runs = 0
         self.total_wins = 0
@@ -211,17 +213,24 @@ class TradingBot:
         if self.is_trade_in_progress:
             return
 
-        # Check strategy entry conditions, respecting the user-selected contract mode.
+        # Lock the contract type for the entire recovery cycle.
+        if self.in_recovery_cycle and self.active_contract_type and self.stake > self.config.base_stake:
+            asyncio.create_task(self._place_trade(self.active_contract_type))
+            return
+
+        # Normal/base-stake entry respects the configured allowed contract mode.
+        # The first valid trigger selects the contract type; that type remains
+        # fixed through recovery until the recovery target is completed.
+        if self.in_recovery_cycle:
+            return
+
         mode = self.config.contract_type_mode.upper()
         under_allowed = mode in ("DIGITUNDER", "BOTH")
         over_allowed = mode in ("DIGITOVER", "BOTH")
 
         if under_allowed and self.last_digit == self.config.under_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
-            # Existing base-stake trigger -> DIGITUNDER.
             asyncio.create_task(self._place_trade("DIGITUNDER"))
-
-        elif over_allowed and self.last_digit == self.config.over_trigger_digit and self.stake > self.config.base_stake:
-            # Existing recovery trigger -> DIGITOVER.
+        elif over_allowed and self.last_digit == self.config.over_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
             asyncio.create_task(self._place_trade("DIGITOVER"))
 
     async def _place_trade(self, contract_type: str):
@@ -229,7 +238,17 @@ class TradingBot:
             return
 
         self.is_trade_in_progress = True
-        self.add_log("info", f"Executing {contract_type} trade | Stake: ${self.stake:.2f} | Target Digit Prediction: {self.predict}")
+
+        # Once recovery starts, the contract type is immutable for that cycle.
+        if not self.in_recovery_cycle or self.active_contract_type is None:
+            self.active_contract_type = contract_type
+
+        self.add_log(
+            "info",
+            f"Executing {contract_type} trade | Stake: ${self.stake:.2f} | "
+            f"Target Digit Prediction: {self.predict} | "
+            f"Recovery Contract: {self.active_contract_type}"
+        )
 
         try:
             buy_res = await self.client.buy_contract(
@@ -305,6 +324,7 @@ class TradingBot:
                     self.recovery_win_count = 0
                     self.in_recovery_cycle = False
                     self.recovery_prediction_active = False
+                    self.active_contract_type = None
                     self.predict = self.config.win_predict_digit
                     self.add_log("info", f"Recovery win goal reached ({self.config.recovery_wins_required} wins). Recovery complete; resetting stake to base ${self.stake:.2f} and prediction digit to {self.predict}.")
                 else:
@@ -339,6 +359,7 @@ class TradingBot:
                 self.recovery_win_count = 0
                 self.in_recovery_cycle = False
                 self.recovery_prediction_active = False
+                self.active_contract_type = None
                 self.predict = self.config.win_predict_digit
                 self.time_duration = self.config.duration
                 self.loss_streak = 0
@@ -356,7 +377,12 @@ class TradingBot:
                     self.recovery_prediction_active = True
                     self.predict = self.config.loss_predict_digit
                 self.time_duration = self.config.duration
-                self.add_log("info", f"Next stake increased to ${self.stake:.2f} (Martingale x{self.config.martingale}). First recovery trade uses loss prediction digit: {self.predict}")
+                self.add_log(
+                    "info",
+                    f"Next stake increased to ${self.stake:.2f} (Martingale x{self.config.martingale}). "
+                    f"Recovery contract locked to {self.active_contract_type}; "
+                    f"first recovery trade uses loss prediction digit {self.predict}."
+                )
 
         # Check stopping criteria
         if self.total_profit >= self.config.take_profit:
