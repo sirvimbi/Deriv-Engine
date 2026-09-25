@@ -110,6 +110,11 @@ public class HistoryViewModel: ObservableObject {
                 profitSum += diff
                 if diff > 0 { wins += 1 }
                 else if diff < 0 { losses += 1 }
+            } else if let payout = tx.payout, let bp = tx.buy_price {
+                let diff = payout - bp
+                profitSum += diff
+                if diff > 0 { wins += 1 }
+                else if diff < 0 { losses += 1 }
             }
         }
 
