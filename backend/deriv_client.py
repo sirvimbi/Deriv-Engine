@@ -5,6 +5,7 @@ import ssl
 import certifi
 import requests
 import websockets
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional, Dict, Any, Callable
 from websockets.protocol import State
 
@@ -25,6 +26,7 @@ class DerivClient:
         self.pending_requests: Dict[int, asyncio.Future] = {}
         self.tick_callbacks: list = []
         self.contract_callbacks: Dict[int, list] = {}
+        self.balance_callbacks: list = []
         self.listen_task: Optional[asyncio.Task] = None
         self.authorized = False
         self.account_info: Dict[str, Any] = {}
@@ -240,6 +242,18 @@ class DerivClient:
                             except Exception as e:
                                 logger.error(f"Error in tick callback: {e}")
 
+                if msg_type == "balance":
+                    balance = data.get("balance")
+                    if balance:
+                        for cb in list(self.balance_callbacks):
+                            try:
+                                if asyncio.iscoroutinefunction(cb):
+                                    await cb(balance)
+                                else:
+                                    cb(balance)
+                            except Exception as e:
+                                logger.error(f"Error in balance callback: {e}")
+
                 if msg_type == "proposal_open_contract":
                     poc = data.get("proposal_open_contract")
                     if poc:
@@ -299,8 +313,11 @@ class DerivClient:
         return response
 
     async def buy_contract(self, symbol: str, contract_type: str, amount: float, duration: int = 1, duration_unit: str = "t", barrier: Optional[int] = None, currency: str = "USD") -> Dict[str, Any]:
+        normalized_amount = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if normalized_amount < Decimal("0.01"):
+            raise ValueError("Trade amount must be at least 0.01.")
         params = {
-            "amount": amount,
+            "amount": float(normalized_amount),
             "basis": "stake",
             "contract_type": contract_type,
             "currency": currency,
@@ -311,7 +328,7 @@ class DerivClient:
         if barrier is not None:
             params["barrier"] = str(barrier)
 
-        response = await self.send_request({"buy": 1, "price": amount, "parameters": params})
+        response = await self.send_request({"buy": 1, "price": float(normalized_amount), "parameters": params})
         if "error" in response:
             raise Exception(response["error"].get("message", "Contract purchase failed"))
         return response.get("buy", {})

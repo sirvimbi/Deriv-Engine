@@ -4,6 +4,7 @@ import AppKit
 public struct SettingsView: View {
     @StateObject private var viewModel = SettingsViewModel()
     @State private var showRealAccountConfirm = false
+    @State private var selectedAccountIsDemo = true
 
     public init() {}
 
@@ -35,11 +36,19 @@ public struct SettingsView: View {
             .textSelection(.enabled)
             .background(Theme.pageBackground.ignoresSafeArea())
             .navigationTitle("Bot Settings")
+            .onChange(of: viewModel.config.account_type) { _, newValue in
+                let newIsDemo = newValue != "real"
+                if selectedAccountIsDemo != newIsDemo { selectedAccountIsDemo = newIsDemo }
+            }
+            .onChange(of: selectedAccountIsDemo) { _, newIsDemo in
+                if newIsDemo { viewModel.config.account_type = "demo" }
+                else if viewModel.config.account_type != "real" { showRealAccountConfirm = true }
+            }
             .alert("Switch to a real-money account?", isPresented: $showRealAccountConfirm) {
                 Button("Switch to Real Account", role: .destructive) {
                     viewModel.config.account_type = "real"
                 }
-                Button("Stay on Demo", role: .cancel) {}
+                Button("Stay on Demo", role: .cancel) { selectedAccountIsDemo = true }
             } message: {
                 Text("The bot will place trades using real funds from your Deriv account. Make sure your risk settings are correct before switching.")
             }
@@ -48,16 +57,7 @@ public struct SettingsView: View {
 
     private var accountModeCard: some View {
         settingsCard("Trading Account", systemImage: "creditcard.fill") {
-            Picker("Account Mode", selection: Binding(
-                get: { viewModel.config.isDemo },
-                set: { newIsDemo in
-                    if newIsDemo {
-                        viewModel.config.account_type = "demo"
-                    } else if viewModel.config.account_type != "real" {
-                        showRealAccountConfirm = true
-                    }
-                }
-            )) {
+            Picker("Account Mode", selection: $selectedAccountIsDemo) {
                 Text("Demo").tag(true)
                 Text("Real").tag(false)
             }
@@ -214,9 +214,7 @@ struct NativeEditableField: NSViewRepresentable {
     let placeholder: String
     var isSecure: Bool = false
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
-    }
+    func makeCoordinator() -> Coordinator { Coordinator(binding: $text) }
 
     func makeNSView(context: Context) -> NSTextField {
         let field: NSTextField = isSecure ? NSSecureTextField() : NSTextField()
@@ -225,8 +223,6 @@ struct NativeEditableField: NSViewRepresentable {
         field.isEditable = true
         field.isSelectable = true
         field.isEnabled = true
-        field.allowsEditingTextAttributes = false
-        field.cell?.isScrollable = true
         field.usesSingleLineMode = true
         field.lineBreakMode = .byTruncatingTail
         field.delegate = context.coordinator
@@ -236,31 +232,25 @@ struct NativeEditableField: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSTextField, context: Context) {
-        if nsView.stringValue != text && !context.coordinator.isEditing {
+        // Never rewrite the AppKit field while the user is typing. Rewriting
+        // during SwiftUI's update pass causes cursor/selection loss and can
+        // trigger "Publishing changes from within view updates".
+        if !context.coordinator.isEditing && nsView.stringValue != text {
             nsView.stringValue = text
         }
         nsView.placeholderString = placeholder
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
-        private var binding: Binding<String>
+        var binding: Binding<String>
         var isEditing = false
 
-        init(text: Binding<String>) {
-            self.binding = text
+        init(binding: Binding<String>) {
+            self.binding = binding
         }
 
         func controlTextDidBeginEditing(_ notification: Notification) {
             isEditing = true
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            let value = field.stringValue
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.binding.wrappedValue = value
-            }
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
@@ -275,31 +265,29 @@ struct NativeEditableField: NSViewRepresentable {
     }
 }
 
-
 struct NativeNumberField: NSViewRepresentable {
     @Binding var value: Double
     let placeholder: String
 
-    func makeCoordinator() -> Coordinator { Coordinator(value: value, binding: $value) }
+    func makeCoordinator() -> Coordinator { Coordinator(binding: $value) }
 
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField()
-        field.stringValue = String(value)
+        field.stringValue = String(format: "%.2f", value)
         field.placeholderString = placeholder
         field.isEditable = true
         field.isSelectable = true
         field.isEnabled = true
-        field.allowsEditingTextAttributes = false
-        field.cell?.isScrollable = true
         field.usesSingleLineMode = true
         field.delegate = context.coordinator
         field.bezelStyle = .roundedBezel
+        field.focusRingType = .default
         return field
     }
 
     func updateNSView(_ nsView: NSTextField, context: Context) {
         guard !context.coordinator.isEditing else { return }
-        let text = String(value)
+        let text = String(format: "%.2f", value)
         if nsView.stringValue != text { nsView.stringValue = text }
     }
 
@@ -307,19 +295,23 @@ struct NativeNumberField: NSViewRepresentable {
         var isEditing = false
         var binding: Binding<Double>
 
-        init(value: Double, binding: Binding<Double>) {
+        init(binding: Binding<Double>) {
             self.binding = binding
         }
 
-        func controlTextDidBeginEditing(_ notification: Notification) { isEditing = true }
+        func controlTextDidBeginEditing(_ notification: Notification) {
+            isEditing = true
+        }
 
         func controlTextDidEndEditing(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
             let normalized = field.stringValue.replacingOccurrences(of: ",", with: ".")
             let parsed = Double(normalized) ?? 0
-            binding.wrappedValue = parsed
-            field.stringValue = String(parsed)
-            isEditing = false
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.binding.wrappedValue = parsed
+                self.isEditing = false
+            }
         }
     }
 }
@@ -344,11 +336,10 @@ struct NativeIntegerField: NSViewRepresentable {
         field.isEditable = true
         field.isSelectable = true
         field.isEnabled = true
-        field.allowsEditingTextAttributes = false
-        field.cell?.isScrollable = true
         field.usesSingleLineMode = true
         field.delegate = context.coordinator
         field.bezelStyle = .roundedBezel
+        field.focusRingType = .default
         return field
     }
 
@@ -368,15 +359,19 @@ struct NativeIntegerField: NSViewRepresentable {
             self.range = range
         }
 
-        func controlTextDidBeginEditing(_ notification: Notification) { isEditing = true }
+        func controlTextDidBeginEditing(_ notification: Notification) {
+            isEditing = true
+        }
 
         func controlTextDidEndEditing(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
             let parsed = Int(field.stringValue.filter { $0.isNumber || $0 == "-" }) ?? 0
             let clamped = min(max(parsed, range.lowerBound), range.upperBound)
-            binding.wrappedValue = clamped
-            field.stringValue = String(clamped)
-            isEditing = false
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.binding.wrappedValue = clamped
+                self.isEditing = false
+            }
         }
     }
 }

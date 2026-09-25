@@ -11,14 +11,8 @@ public struct ManualTradeView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     settingsCard("Trade Configuration", systemImage: "slider.horizontal.3") {
                         editableRow("Symbol") {
-                            Picker("", selection: $viewModel.symbol) {
-                                Text("Volatility 100 Index (R_100)").tag("R_100")
-                                Text("Volatility 75 Index (R_75)").tag("R_75")
-                                Text("Volatility 50 Index (R_50)").tag("R_50")
-                                Text("Volatility 25 Index (R_25)").tag("R_25")
-                                Text("Volatility 10 Index (R_10)").tag("R_10")
-                            }
-                            .frame(width: 300)
+                            NativeEditableField(text: $viewModel.symbol, placeholder: "e.g. R_100")
+                                .frame(width: 300, height: 26)
                         }
 
                         editableRow("Contract Type") {
@@ -51,12 +45,8 @@ public struct ManualTradeView: View {
                         }
 
                         editableRow("Currency") {
-                            Picker("", selection: $viewModel.currency) {
-                                Text("USD").tag("USD")
-                                Text("EUR").tag("EUR")
-                                Text("GBP").tag("GBP")
-                            }
-                            .frame(width: 180)
+                            NativeEditableField(text: $viewModel.currency, placeholder: "e.g. USD")
+                                .frame(width: 180, height: 26)
                         }
                     }
 

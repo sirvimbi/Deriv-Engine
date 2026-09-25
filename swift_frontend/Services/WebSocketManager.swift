@@ -105,6 +105,11 @@ public class WebSocketManager: ObservableObject {
                            let status = try? JSONDecoder().decode(BotStatus.self, from: statusData) {
                             self.latestStatus = status
                         }
+                    } else if type == "account_equity", let equityDict = json["data"] {
+                        if var status = self.latestStatus, let equity = equityDict["equity"] as? Double {
+                            status = BotStatus(is_running: status.is_running, is_trade_in_progress: status.is_trade_in_progress, total_profit: status.total_profit, runs: status.runs, total_wins: status.total_wins, total_losses: status.total_losses, win_rate: status.win_rate, current_stake: status.current_stake, current_predict: status.current_predict, loss_streak: status.loss_streak, recovery_win_count: status.recovery_win_count, lowest_balance: status.lowest_balance, lowest_loss: status.lowest_loss, wins_in_row: status.wins_in_row, loss_in_row: status.loss_in_row, last_digit: status.last_digit, last_tick_quote: status.last_tick_quote, duration_minutes: status.duration_minutes, stop_reason: status.stop_reason, config: status.config, equity: equity)
+                            self.latestStatus = status
+                        }
                     } else if type == "tick", let tickDict = json["data"] {
                         if let tickData = try? JSONSerialization.data(withJSONObject: tickDict),
                            let tick = try? JSONDecoder().decode(LiveTickData.self, from: tickData) {
