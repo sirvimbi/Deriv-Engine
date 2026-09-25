@@ -130,6 +130,8 @@ public struct HistoryView: View {
             diff = p
         } else if let sp = tx.sell_price, let bp = tx.buy_price {
             diff = sp - bp
+        } else if let payout = tx.payout, let bp = tx.buy_price {
+            diff = payout - bp
         } else {
             diff = nil
         }
@@ -146,7 +148,7 @@ public struct HistoryView: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(tx.action?.capitalized ?? tx.symbol ?? "Option Trade")
+                Text((tx.action ?? tx.action_type)?.capitalized ?? tx.symbol ?? "Option Trade")
                     .font(.subheadline)
                     .fontWeight(.bold)
                     .lineLimit(1)
