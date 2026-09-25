@@ -91,6 +91,7 @@ public class DashboardViewModel: ObservableObject {
         // so a stale backend cannot make the button appear broken.
         logs.removeAll()
         WebSocketManager.shared.newLogs.removeAll()
+        WebSocketManager.shared.clearServerLogs()
         Task {
             do {
                 try await APIService.shared.clearBotLogs()
