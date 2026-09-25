@@ -209,15 +209,31 @@ async def get_profit_table(limit: int = 50, token: str = None):
 
 @app.get("/api/account/balance")
 async def get_account_balance(token: str = None):
+    """Return the current account balance and synchronize the bot/dashboard state.
+
+    Prefer the bot's already-authenticated Deriv socket. This avoids creating
+    another OTP session for every dashboard refresh and keeps the displayed
+    equity on the same authenticated account used for trading.
+    """
     api_token = token or bot.config.api_token
-    client = DerivClient(app_id=bot.config.app_id, account_type=bot.config.account_type)
     try:
-        await client.authorize(api_token)
-        balance = await client.get_balance()
-        await client.disconnect()
-        return {"status": "success", "balance": balance}
+        if bot.client.authorized:
+            balance = await bot.client.get_balance()
+        else:
+            if not api_token:
+                raise RuntimeError("Deriv API token is not configured.")
+            await bot.client.authorize(api_token)
+            await bot.client.subscribe_balance(bot._on_balance)
+            balance = await bot.client.get_balance()
+
+        await bot._on_balance(balance)
+        return {
+            "status": "success",
+            "balance": balance,
+            "equity": bot.account_equity,
+            "currency": balance.get("currency", bot.config.currency)
+        }
     except Exception as e:
-        await client.disconnect()
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.websocket("/ws/live")
