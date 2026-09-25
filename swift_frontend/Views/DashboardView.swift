@@ -14,35 +14,40 @@ public struct DashboardView: View {
     public var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 16) {
-                    header
-                    accountEquityStrip
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(spacing: 16) {
+                        header
+                        accountEquityStrip
 
-                    if let err = viewModel.errorMessage {
-                        ErrorBanner(err)
+                        if let err = viewModel.errorMessage {
+                            ErrorBanner(err)
+                        }
+
+                        LastDigitWidget(
+                            lastQuote: viewModel.lastQuote,
+                            lastDigit: viewModel.lastDigit,
+                            tickHistory: viewModel.tickHistory
+                        )
+
+                        metricsGrid
                     }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
 
-                    LastDigitWidget(
-                        lastQuote: viewModel.lastQuote,
-                        lastDigit: viewModel.lastDigit,
-                        tickHistory: viewModel.tickHistory
-                    )
-
-                    metricsGrid
-                    logSection
+                    activityPanel
+                        .frame(minWidth: 320, idealWidth: 360, maxWidth: 420)
                 }
-                    .padding(Theme.gutter)
+                .padding(Theme.gutter)
             }
             .background(Theme.pageBackground.ignoresSafeArea())
             .navigationTitle("Dashboard")
             .navigationBarTitleDisplayModeCompat()
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    Button(action: copyAllDashboard) {
-                        Label("Copy All", systemImage: "doc.on.doc")
+                    Button(action: copySelectedActivity) {
+                        Label("Copy", systemImage: "doc.on.doc")
                     }
-                    Button(action: exportLogs) {
-                        Label("Export Logs", systemImage: "square.and.arrow.down")
+                    Button(action: exportSelectedActivity) {
+                        Label("Export", systemImage: "square.and.arrow.down")
                     }
                 }
             }
@@ -243,22 +248,38 @@ public struct DashboardView: View {
         }
     }
 
-    // MARK: Log
+    // MARK: Activity panel
 
-    private var logSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private enum ActivityTab: String, CaseIterable {
+        case logs = "Logs"
+        case trades = "Trades"
+    }
+
+    @State private var activityTab: ActivityTab = .logs
+
+    private var activityPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Image(systemName: "terminal.fill")
+                Image(systemName: activityTab == .logs ? "terminal.fill" : "tablecells.fill")
                     .foregroundColor(Theme.profit)
-                Text("LIVE EXECUTION LOG")
+                Text(activityTab == .logs ? "LIVE EXECUTION LOG" : "TRADE TABLE")
                     .font(.system(size: 11, weight: .bold))
                     .tracking(0.4)
                     .foregroundColor(.secondary)
                 Spacer()
-                Text("\(viewModel.logs.count) entries")
+                Text(activityTab == .logs
+                     ? "(viewModel.logs.count) entries"
+                     : "(viewModel.tradeLogRows.count) trades")
                     .font(.caption2)
                     .foregroundColor(.gray)
             }
+
+            Picker("Activity", selection: $activityTab) {
+                ForEach(ActivityTab.allCases, id: \.self) { tab in
+                    Text(tab.rawValue).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
 
             HStack(spacing: 8) {
                 Button(action: { viewModel.clearLogs() }) {
@@ -266,12 +287,12 @@ public struct DashboardView: View {
                 }
                 .buttonStyle(.bordered)
 
-                Button(action: copyAllDashboard) {
+                Button(action: copySelectedActivity) {
                     Label("Copy", systemImage: "doc.on.doc")
                 }
                 .buttonStyle(.bordered)
 
-                Button(action: exportLogs) {
+                Button(action: exportSelectedActivity) {
                     Label("Export CSV", systemImage: "square.and.arrow.down")
                 }
                 .buttonStyle(.bordered)
@@ -280,42 +301,100 @@ public struct DashboardView: View {
             }
             .controlSize(.small)
 
-            // Newest entries render at the top (list is reversed below), and
-            // the ScrollViewReader forces the view back to that newest entry
-            // whenever the log count changes — so the latest line is always
-            // on screen without the user needing to scroll for it.
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 6) {
-                        ForEach(viewModel.logs.reversed()) { log in
-                            HStack(alignment: .top, spacing: 6) {
-                                Text("[\(log.timestamp)]")
-                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                    .foregroundColor(.gray)
-
-                                Text(log.message)
-                                    .font(.system(size: 12, design: .monospaced))
-                                    .foregroundColor(logColor(log.level))
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .id(log.id)
-                        }
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(height: 190)
-                .textSelection(.enabled)
-                .background(Color.black.opacity(0.92))
-                .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadiusMedium, style: .continuous))
-                .onChange(of: viewModel.logs.count) { _, _ in
-                    scrollToNewestLog(proxy)
-                }
-                .onAppear {
-                    scrollToNewestLog(proxy)
-                }
+            if activityTab == .logs {
+                logList
+            } else {
+                tradeTable
             }
         }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.cornerRadiusLarge, style: .continuous)
+                .fill(Theme.cardBackground)
+        )
+    }
+
+    private var logList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 6) {
+                    ForEach(viewModel.logs.reversed()) { log in
+                        HStack(alignment: .top, spacing: 6) {
+                            Text("[(log.timestamp)]")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(.gray)
+
+                            Text(log.message)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundColor(logColor(log.level))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .id(log.id)
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(minHeight: 520, maxHeight: 720)
+            .textSelection(.enabled)
+            .background(Color.black.opacity(0.92))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadiusMedium, style: .continuous))
+            .onChange(of: viewModel.logs.count) { _, _ in
+                scrollToNewestLog(proxy)
+            }
+            .onAppear {
+                scrollToNewestLog(proxy)
+            }
+        }
+    }
+
+    private var tradeTable: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Text("TYPE")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("BUY / STAKE")
+                    .frame(width: 82, alignment: .trailing)
+                Text("P/L")
+                    .frame(width: 78, alignment: .trailing)
+            }
+            .font(.system(size: 9, weight: .bold))
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .background(Color.black.opacity(0.16))
+
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(viewModel.tradeLogRows.reversed()) { row in
+                        HStack(spacing: 0) {
+                            Text(row.contractType)
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            Text(String(format: "$%.2f", row.stake))
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .frame(width: 82, alignment: .trailing)
+
+                            Text(String(format: "%@$%.2f", row.profitLoss >= 0 ? "+" : "-", abs(row.profitLoss)))
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .frame(width: 78, alignment: .trailing)
+                        }
+                        .foregroundColor(row.isWin ? Theme.profit : Theme.loss)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 7)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill((row.isWin ? Theme.profit : Theme.loss).opacity(0.10))
+                        )
+                    }
+                }
+                .padding(4)
+            }
+        }
+        .frame(minHeight: 520, maxHeight: 720)
+        .background(Color.black.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadiusMedium, style: .continuous))
     }
 
     private func scrollToNewestLog(_ proxy: ScrollViewProxy) {
@@ -349,53 +428,54 @@ private extension View {
 
 
 private extension DashboardView {
-    func copyAllDashboard() {
-        let status = viewModel.botStatus
-        var lines: [String] = [
-            "DERIV ENGINE BOT SNAPSHOT",
-            "Status: \(status.is_running ? "RUNNING" : "STOPPED")",
-            "Market: \(status.config.symbol)",
-            "Account: \(status.config.account_type.uppercased())",
-            "Contract Mode: \(status.config.contract_type_mode)",
-            String(format: "Total Profit: $%.2f", status.total_profit),
-            "Runs: \(status.runs)",
-            "Wins: \(status.total_wins)",
-            "Losses: \(status.total_losses)",
-            String(format: "Win Rate: %.2f%%", status.win_rate),
-            String(format: "Current Stake: $%.2f", status.current_stake),
-            "Current Prediction: \(status.current_predict)",
-            "Loss Streak: \(status.loss_streak)",
-            "Recovery Wins: \(status.recovery_win_count)/\(status.config.recovery_wins_required)",
-            "Take Profit: $\(status.config.take_profit)",
-            "Stop Loss: $\(status.config.stop_loss)",
-            "Max Runs: \(status.config.max_runs)",
-            "Max Loss Streak: \(status.config.max_loss_streak)",
-        ]
-        if let equity = status.equity {
-            lines.insert(String(format: "Account Equity: $%.2f", equity), at: 2)
+    func copySelectedActivity() {
+        if activityTab == .logs {
+            let text = viewModel.logs.map {
+                "[($0.timestamp)] [($0.level.uppercased())] ($0.message)"
+            }.joined(separator: "\n")
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            return
         }
-        lines.append(contentsOf: ["", "EXECUTION LOGS"])
-        lines.append(contentsOf: viewModel.logs.map { "[\($0.timestamp)] [\($0.level.uppercased())] \($0.message)" })
+
+        let rows = viewModel.tradeLogRows.map {
+            "\($0.contractType)\t\(String(format: "$%.2f", $0.stake))\t\(String(format: "%+.2f", $0.profitLoss))"
+        }
+        let text = (["Contract Type\tBuy / Stake\tP/L"] + rows).joined(separator: "\n")
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
-    func exportLogs() {
+    func exportSelectedActivity() {
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "deriv-execution-logs.csv"
+        panel.nameFieldStringValue = activityTab == .logs
+            ? "deriv-execution-logs.csv"
+            : "deriv-trade-table.csv"
         panel.allowedContentTypes = [.commaSeparatedText]
         panel.canCreateDirectories = true
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
-            let header = "Timestamp,Level,Message\n"
-            let rows = viewModel.logs.map {
-                "\($0.timestamp),\($0.level.csvEscaped),\($0.message.csvEscaped)"
-            }.joined(separator: "\n")
+
+            let csv: String
+            if activityTab == .logs {
+                let header = "Timestamp,Level,Message\n"
+                let rows = viewModel.logs.map {
+                    "\($0.timestamp.csvEscaped),\($0.level.csvEscaped),\($0.message.csvEscaped)"
+                }.joined(separator: "\n")
+                csv = header + rows + "\n"
+            } else {
+                let header = "Contract Type,Buy / Stake,P/L\n"
+                let rows = viewModel.tradeLogRows.map {
+                    "\($0.contractType.csvEscaped),\(String(format: "%.2f", $0.stake).csvEscaped),\(String(format: "%.2f", $0.profitLoss).csvEscaped)"
+                }.joined(separator: "\n")
+                csv = header + rows + "\n"
+            }
+
             do {
-                try (header + rows + "\n").write(to: url, atomically: true, encoding: .utf8)
+                try csv.write(to: url, atomically: true, encoding: .utf8)
                 showExportSuccess = true
             } catch {
-                print("Failed to export logs: \(error.localizedDescription)")
+                print("Failed to export activity: \(error.localizedDescription)")
             }
         }
     }
