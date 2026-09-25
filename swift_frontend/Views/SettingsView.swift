@@ -46,6 +46,9 @@ public struct SettingsView: View {
                 let newIsDemo = newValue != "real"
                 if selectedAccountIsDemo != newIsDemo { selectedAccountIsDemo = newIsDemo }
             }
+            .onChange(of: viewModel.config.contract_type_mode) { _, _ in
+                viewModel.clampDigitBarriersForSelectedMode()
+            }
             .onChange(of: selectedAccountIsDemo) { _, newIsDemo in
                 DispatchQueue.main.async {
                     if newIsDemo {
@@ -154,13 +157,13 @@ public struct SettingsView: View {
                 IntegerDropdown("Over Entry Trigger Digit", value: $viewModel.config.over_trigger_digit, range: 0...9)
             }
             dropdownRow("Digit Contract Barrier (Win)") {
-                IntegerDropdown("Digit Contract Barrier (Win)", value: $viewModel.config.win_predict_digit, range: 0...9)
+                IntegerDropdown("Digit Contract Barrier (Win)", value: $viewModel.config.win_predict_digit, range: viewModel.digitBarrierRange)
             }
             dropdownRow("Loss Prediction Digit") {
-                IntegerDropdown("Loss Prediction Digit", value: $viewModel.config.loss_predict_digit, range: 0...9)
+                IntegerDropdown("Loss Prediction Digit", value: $viewModel.config.loss_predict_digit, range: viewModel.digitBarrierRange)
             }
             dropdownRow("Recovery Win Target Prediction Digit") {
-                IntegerDropdown("Recovery Win Target Prediction Digit", value: $viewModel.config.recovery_win_predict_digit, range: 0...9)
+                IntegerDropdown("Recovery Win Target Prediction Digit", value: $viewModel.config.recovery_win_predict_digit, range: viewModel.digitBarrierRange)
             }
             dropdownRow("Recovery Win Target") {
                 IntegerDropdown("Recovery Win Target", value: $viewModel.config.recovery_wins_required, range: 0...50)
