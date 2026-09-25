@@ -5,7 +5,6 @@ public struct TradeLogRow: Identifiable, Equatable {
     public let id: String
     public let contractType: String
     public let buyPrice: Double
-    public let stake: Double
     public let profitLoss: Double
     public let isWin: Bool
 }
@@ -20,7 +19,7 @@ public class DashboardViewModel: ObservableObject {
     /// and settlement messages so the table stays synchronized with Clear,
     /// live updates, copy and export without a second persistence path.
     public var tradeLogRows: [TradeLogRow] {
-        var pending: [(id: String, type: String, buyPrice: Double, stake: Double)] = []
+        var pending: [(id: String, type: String, buyPrice: Double)] = []
         var rows: [TradeLogRow] = []
 
         let placementPattern = #"Contract #(\d+) placed\. Type=(DIGITUNDER|DIGITOVER|BOTH).*?(?:BuyPrice=\$([0-9]+(?:\.[0-9]+)?)\s*\|\s*)?Stake=\$([0-9]+(?:\.[0-9]+)?)"#
@@ -54,8 +53,7 @@ public class DashboardViewModel: ObservableObject {
                 pending.append((
                     id: String(message[idRange]),
                     type: String(message[typeRange]).uppercased(),
-                    buyPrice: buyPrice,
-                    stake: stake
+                    buyPrice: buyPrice
                 ))
                 continue
             }
@@ -75,7 +73,6 @@ public class DashboardViewModel: ObservableObject {
                         id: trade.id,
                         contractType: trade.type,
                         buyPrice: trade.buyPrice,
-                        stake: trade.stake,
                         profitLoss: pnl,
                         isWin: result == "WON" || pnl > 0
                     )
