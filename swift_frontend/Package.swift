@@ -37,7 +37,8 @@ let package = Package(
                 "Views/ManualTradeView.swift",
                 "Views/Components/MetricCard.swift",
                 "Views/Components/LastDigitWidget.swift",
-                "Views/Components/NativeInput.swift"
+                "Views/Components/NativeInput.swift",
+                "Views/Components/DropdownInput.swift"
             ]
         )
     ]
