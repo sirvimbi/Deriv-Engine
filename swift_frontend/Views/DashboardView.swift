@@ -335,6 +335,6 @@ private extension DashboardView {
 
 private extension String {
     var csvEscaped: String {
-        """ + replacingOccurrences(of: """, with: """") + """
+        return "\"" + replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 }
