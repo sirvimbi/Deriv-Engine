@@ -339,7 +339,7 @@ class DerivClient:
         return res.get("statement", {}).get("transactions", [])
 
     async def get_profit_table(self, limit: int = 50, date_from: Optional[int] = None) -> list:
-        payload = {"profit_table": 1, "description": 1, "limit": limit}
+        payload = {"profit_table": 1, "limit": limit}
         if date_from:
             payload["date_from"] = int(date_from)
         res = await self.send_request(payload)
