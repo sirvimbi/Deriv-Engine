@@ -76,10 +76,10 @@ public class HistoryViewModel: ObservableObject {
         if suppressAutoRefresh && !force { return }
         Task {
             do {
-                guard try await APIService.shared.getHistorySession() != nil else {
-                    clearSession()
-                    return
-                }
+                // The history endpoints already apply the active bot session
+                // timestamp server-side. Do not perform a second session
+                // probe: older running backends can return 404 here and
+                // prevent all transaction/profit data from loading.
                 isLoading = true
                 errorMessage = nil
                 if selectedTab == 0 {
@@ -115,6 +115,11 @@ public class HistoryViewModel: ObservableObject {
                 profitSum += diff
                 if diff > 0 { wins += 1 }
                 else if diff < 0 { losses += 1 }
+            } else if let amount = tx.amount {
+                // Statement rows expose the cash-flow amount. Summing the
+                // session's buy/sell cash flows gives the realized net P/L
+                // even when the statement response has no profit field.
+                profitSum += amount
             }
         }
 
