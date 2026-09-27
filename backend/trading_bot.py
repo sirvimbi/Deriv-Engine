@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from decimal import Decimal
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Callable
 from models import TradingConfig, BotStatus, LogMessage, validate_digit_barrier
@@ -47,7 +48,7 @@ class TradingBot:
         
         self.last_digit: Optional[int] = None
         self.last_tick_quote: Optional[float] = None
-        self.last_tick_pip_size: int = 2
+        self.last_tick_pip_size: Optional[int] = None
         self.start_time_epoch = time.time()
         self.session_start_epoch = 0
         self.stop_reason: Optional[str] = None
@@ -222,7 +223,7 @@ class TradingBot:
         except (TypeError, ValueError):
             pip_size = None
 
-        self.last_tick_pip_size = max(0, pip_size) if pip_size is not None else 0
+        self.last_tick_pip_size = max(0, pip_size) if pip_size is not None else None
         self.last_digit = self._extract_last_digit_from_quote(quote, pip_size)
 
         if self.last_digit is None:
