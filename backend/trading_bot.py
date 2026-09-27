@@ -425,8 +425,12 @@ class TradingBot:
                 self.is_trade_in_progress = False
 
         except Exception as e:
-            self.add_log("error", f"Error placing trade: {str(e)}")
+            message = str(e)
+            self.add_log("error", f"Error placing trade: {message}")
             self.is_trade_in_progress = False
+
+            if message.startswith("Insufficient Deriv balance:"):
+                await self.stop("Insufficient account balance for configured stake")
 
     @staticmethod
     def _extract_last_digit_from_quote(quote: Any, pip_size: Optional[int] = None) -> Optional[int]:
