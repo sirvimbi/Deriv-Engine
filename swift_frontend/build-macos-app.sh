@@ -26,10 +26,13 @@ fi
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS" "$RESOURCES"
 
-mapfile -t SWIFT_SOURCES < <(find "$ROOT" -type f -name '*.swift' \
+SWIFT_SOURCES=()
+while IFS= read -r -d '' SOURCE; do
+    SWIFT_SOURCES+=( "$SOURCE" )
+done < <(find "$ROOT" -type f -name '*.swift' \
     ! -path "$ROOT/.build/*" \
     ! -path "$ROOT/Tests/*" \
-    ! -path "$ROOT/test/*" | sort)
+    ! -path "$ROOT/test/*" -print0)
 
 if [[ "${#SWIFT_SOURCES[@]}" -eq 0 ]]; then
     echo "error: no Swift source files found under $ROOT." >&2
