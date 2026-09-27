@@ -71,4 +71,6 @@ public struct LiveTickData: Codable {
     public let quote: Double
     public let last_digit: Int
     public let symbol: String
+    public let pip_size: Int?
+    public let epoch: Int?
 }

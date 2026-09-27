@@ -127,25 +127,19 @@ public class HistoryViewModel: ObservableObject {
         var losses = 0
 
         for tx in transactions {
+            // Profit-table rows can expose an explicit profit. Otherwise the
+            // realized P/L is payout - buy_price. Never use statement.amount
+            // here: statement.amount is a cash-flow entry (for example the
+            // negative purchase amount), not the contract's P/L.
             if let p = tx.profit {
                 profitSum += p
                 if p > 0 { wins += 1 }
                 else if p < 0 { losses += 1 }
-            } else if let sp = tx.sell_price, let bp = tx.buy_price {
-                let diff = sp - bp
-                profitSum += diff
-                if diff > 0 { wins += 1 }
-                else if diff < 0 { losses += 1 }
             } else if let payout = tx.payout, let bp = tx.buy_price {
                 let diff = payout - bp
                 profitSum += diff
                 if diff > 0 { wins += 1 }
                 else if diff < 0 { losses += 1 }
-            } else if let amount = tx.amount {
-                // Statement rows expose the cash-flow amount. Summing the
-                // session's buy/sell cash flows gives the realized net P/L
-                // even when the statement response has no profit field.
-                profitSum += amount
             }
         }
 

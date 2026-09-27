@@ -8,6 +8,35 @@ public class APIService {
 
     private init() {}
 
+    private func validateHTTPResponse(_ response: URLResponse, data: Data, endpoint: String) throws {
+        guard let http = response as? HTTPURLResponse else { return }
+        guard (200...299).contains(http.statusCode) else {
+            let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["detail"] as? String
+                ?? String(data: data, encoding: .utf8)
+                ?? "HTTP \(http.statusCode)"
+            throw NSError(
+                domain: "APIService",
+                code: http.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: "\(endpoint) failed: \(detail)"]
+            )
+        }
+    }
+
+    private func decodeResponse<T: Decodable>(_ type: T.Type, from data: Data, endpoint: String) throws -> T {
+        do {
+            return try JSONDecoder().decode(type, from: data)
+        } catch {
+            let raw = String(data: data, encoding: .utf8) ?? "<non-UTF8 response>"
+            throw NSError(
+                domain: "APIService",
+                code: -2,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Invalid \(endpoint) data from backend: \(error.localizedDescription). Response: \(raw)"
+                ]
+            )
+        }
+    }
+
     public func getRuntime() async throws -> BackendRuntime {
         guard let url = URL(string: "\(baseURL)/api/runtime") else {
             throw URLError(.badURL)
@@ -25,8 +54,9 @@ public class APIService {
         guard let url = URL(string: "\(baseURL)/api/config") else {
             throw URLError(.badURL)
         }
-        let (data, _) = try await URLSession.shared.data(from: url)
-        return try JSONDecoder().decode(TradingConfig.self, from: data)
+        let (data, response) = try await URLSession.shared.data(from: url)
+        try validateHTTPResponse(response, data: data, endpoint: "config")
+        return try decodeResponse(TradingConfig.self, from: data, endpoint: "config")
     }
 
     public func updateConfig(_ config: TradingConfig) async throws -> TradingConfig {
@@ -66,8 +96,9 @@ public class APIService {
         guard let url = URL(string: "\(baseURL)/api/bot/status") else {
             throw URLError(.badURL)
         }
-        let (data, _) = try await URLSession.shared.data(from: url)
-        return try JSONDecoder().decode(BotStatus.self, from: data)
+        let (data, response) = try await URLSession.shared.data(from: url)
+        try validateHTTPResponse(response, data: data, endpoint: "bot status")
+        return try decodeResponse(BotStatus.self, from: data, endpoint: "bot status")
     }
 
     public func clearBotLogs() async throws {
@@ -104,8 +135,9 @@ public class APIService {
         guard let url = URL(string: "\(baseURL)/api/bot/logs") else {
             throw URLError(.badURL)
         }
-        let (data, _) = try await URLSession.shared.data(from: url)
-        return try JSONDecoder().decode([LogMessage].self, from: data)
+        let (data, response) = try await URLSession.shared.data(from: url)
+        try validateHTTPResponse(response, data: data, endpoint: "bot logs")
+        return try decodeResponse([LogMessage].self, from: data, endpoint: "bot logs")
     }
 
     public func getHistorySession() async throws -> Int? {
