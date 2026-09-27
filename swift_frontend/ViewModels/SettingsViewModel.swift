@@ -7,17 +7,42 @@ public class SettingsViewModel: ObservableObject {
     @Published public var isSaving: Bool = false
     @Published public var saveSuccess: Bool = false
     @Published public var errorMessage: String? = nil
+    @Published public var availableSymbols: [DerivSymbol] = []
 
     public init() {
         loadConfig()
+        loadDigitSymbols()
     }
 
     public func loadConfig() {
         Task {
             do {
                 self.config = try await APIService.shared.getConfig()
+                if !self.availableSymbols.isEmpty,
+                   let first = self.availableSymbols.first,
+                   !self.availableSymbols.contains(where: { $0.symbol == self.config.symbol }) {
+                    self.config.symbol = first.symbol
+                }
             } catch {
                 self.errorMessage = "Failed to load config: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    public func loadDigitSymbols() {
+        Task {
+            do {
+                let symbols = try await APIService.shared.getDigitSymbols()
+                self.availableSymbols = symbols
+
+                if let first = symbols.first,
+                   !symbols.contains(where: { $0.symbol == self.config.symbol }) {
+                    self.config.symbol = first.symbol
+                }
+            } catch {
+                // Keep the persisted/current symbol if Deriv is temporarily
+                // unavailable. The settings screen remains usable.
+                self.errorMessage = "Unable to refresh supported Deriv symbols: \(error.localizedDescription)"
             }
         }
     }

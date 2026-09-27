@@ -103,9 +103,31 @@ public struct SettingsView: View {
                     .frame(minWidth: 180, maxWidth: 320, minHeight: 24)
             }
             editableRow("Market Symbol") {
-                NativeTextInput(text: $viewModel.config.symbol, placeholder: "e.g. R_100")
-                    .frame(minWidth: 160, maxWidth: 320, minHeight: 26)
+                if viewModel.availableSymbols.isEmpty {
+                    HStack(spacing: 8) {
+                        Text(viewModel.config.symbol.isEmpty ? "No symbols loaded" : viewModel.config.symbol)
+                            .foregroundStyle(.secondary)
+                        Button("Refresh") {
+                            viewModel.loadDigitSymbols()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                } else {
+                    Picker("Market Symbol", selection: $viewModel.config.symbol) {
+                        ForEach(viewModel.availableSymbols) { item in
+                            Text("\(item.name) (\(item.symbol))")
+                                .tag(item.symbol)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .menuOrder(.fixed)
+                    .frame(minWidth: 260, maxWidth: 420)
+                }
             }
+            Text("Symbols are loaded live from Deriv and limited to markets currently advertising DigitOver/DigitUnder contracts.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             editableRow("Currency") {
                 NativeTextInput(text: $viewModel.config.currency, placeholder: "e.g. USD")
                     .frame(minWidth: 120, maxWidth: 220, minHeight: 26)

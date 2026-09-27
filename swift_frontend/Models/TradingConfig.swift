@@ -102,3 +102,22 @@ public struct TradingConfig: Codable, Equatable {
         account_type = try c.decodeIfPresent(String.self, forKey: .account_type) ?? "demo"
     }
 }
+
+
+public struct DerivSymbol: Codable, Equatable, Identifiable {
+    public let symbol: String
+    public let name: String
+    public let market: String
+    public let submarket: String
+    public let underlying_symbol_type: String
+
+    public var id: String { symbol }
+
+    public init(symbol: String, name: String, market: String, submarket: String, underlying_symbol_type: String) {
+        self.symbol = symbol
+        self.name = name
+        self.market = market
+        self.submarket = submarket
+        self.underlying_symbol_type = underlying_symbol_type
+    }
+}
