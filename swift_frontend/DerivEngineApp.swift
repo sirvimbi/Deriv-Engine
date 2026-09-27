@@ -2,6 +2,8 @@ import SwiftUI
 
 @main
 struct DerivEngineApp: App {
+    @NSApplicationDelegateAdaptor(DerivEngineAppDelegate.self) private var appDelegate
+
     var body: some Scene {
         WindowGroup {
             MainTabView()
