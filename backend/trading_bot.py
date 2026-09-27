@@ -212,11 +212,26 @@ class TradingBot:
 
         self.last_tick_quote = float(quote)
         
-        # Calculate last digit accurately from price representation
-        pip_size = int(tick_data.get("pip_size", 2) or 2)
-        self.last_tick_pip_size = max(0, pip_size)
-        quote_str = f"{self.last_tick_quote:.{self.last_tick_pip_size}f}"
-        self.last_digit = int(quote_str[-1])
+        # Deriv's current tick schema makes pip_size optional. Never assume
+        # two decimals: doing so changes the last digit for markets whose
+        # quote precision differs, and it also loses trailing-zero precision
+        # when a JSON number is decoded as a binary float.
+        raw_pip_size = tick_data.get("pip_size")
+        try:
+            pip_size = int(raw_pip_size) if raw_pip_size is not None else None
+        except (TypeError, ValueError):
+            pip_size = None
+
+        self.last_tick_pip_size = max(0, pip_size) if pip_size is not None else 0
+        self.last_digit = self._extract_last_digit_from_quote(quote, pip_size)
+
+        if self.last_digit is None:
+            self.add_log(
+                "warn",
+                f"Unable to determine last digit from tick quote={quote!r} "
+                f"pip_size={raw_pip_size!r}; tick ignored for entry decisions."
+            )
+            return
 
         # Broadcast live tick to frontend
         if self.status_broadcast_callback:
@@ -224,7 +239,9 @@ class TradingBot:
                 asyncio.create_task(self.status_broadcast_callback("tick", {
                     "quote": self.last_tick_quote,
                     "last_digit": self.last_digit,
-                    "symbol": self.config.symbol
+                    "symbol": self.config.symbol,
+                    "pip_size": pip_size,
+                    "epoch": tick_data.get("epoch")
                 }))
             except Exception:
                 pass
@@ -411,26 +428,59 @@ class TradingBot:
             self.is_trade_in_progress = False
 
     @staticmethod
-    def _extract_last_digit_from_spot(spot: Any, pip_size: int = 2) -> Optional[int]:
+    def _extract_last_digit_from_quote(quote: Any, pip_size: Optional[int] = None) -> Optional[int]:
+        """Extract the displayed final quote digit without losing decimal scale."""
+        if quote is None:
+            return None
+
+        try:
+            if isinstance(quote, Decimal):
+                value = quote
+            elif isinstance(quote, str):
+                text = quote.strip()
+                if not text:
+                    return None
+                value = Decimal(text)
+            else:
+                value = Decimal(str(quote))
+
+            if pip_size is not None:
+                formatted = format(value, f".{max(0, int(pip_size))}f")
+            else:
+                # Decimal preserves the scale parsed from the JSON token,
+                # including trailing zeroes such as 100.10.
+                formatted = format(value, "f")
+
+            digits = [char for char in formatted if char.isdigit()]
+            return int(digits[-1]) if digits else None
+        except (TypeError, ValueError, ArithmeticError):
+            return None
+
+    @staticmethod
+    def _extract_last_digit_from_spot(spot: Any, pip_size: Optional[int] = None) -> Optional[int]:
         """Extract the actual settlement digit without losing trailing zeros."""
         if spot is None:
             return None
 
-        if isinstance(spot, str):
-            text = spot.strip()
-            if not text:
-                return None
-            # Deriv's current API returns exit_spot as string|number. When it is
-            # a string, preserve trailing decimal zeros exactly as returned.
-            digits = [char for char in text if char.isdigit()]
-            return int(digits[-1]) if digits else None
-
         try:
-            precision = max(0, int(pip_size))
-            formatted = f"{float(spot):.{precision}f}"
+            if isinstance(spot, Decimal):
+                value = spot
+            elif isinstance(spot, str):
+                text = spot.strip()
+                if not text:
+                    return None
+                value = Decimal(text)
+            else:
+                value = Decimal(str(spot))
+
+            if pip_size is not None:
+                formatted = format(value, f".{max(0, int(pip_size))}f")
+            else:
+                formatted = format(value, "f")
+
             digits = [char for char in formatted if char.isdigit()]
             return int(digits[-1]) if digits else None
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, ArithmeticError):
             return None
 
     async def _handle_contract_finished(
