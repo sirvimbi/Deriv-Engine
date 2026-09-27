@@ -242,7 +242,7 @@ class DerivClient:
     async def _listen_loop(self):
         try:
             async for message in self.ws:
-                data = json.loads(message)
+                data = json.loads(message, parse_float=Decimal)
                 msg_type = data.get("msg_type")
                 req_id = data.get("req_id")
 
