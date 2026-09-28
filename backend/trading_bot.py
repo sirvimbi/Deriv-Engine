@@ -202,6 +202,25 @@ class TradingBot:
             except Exception:
                 pass
 
+    async def _refresh_balance_after_settlement(self):
+        """Refresh account balance without blocking Deriv's websocket receive loop.
+
+        Contract callbacks are awaited by DerivClient._listen_loop. Waiting for
+        another websocket request from inside that callback deadlocks the
+        receiver because it cannot consume the balance response until the
+        callback returns.
+        """
+        try:
+            settled_balance = await asyncio.wait_for(
+                self.client.get_balance(),
+                timeout=5.0
+            )
+            await self._on_balance(settled_balance)
+        except asyncio.TimeoutError:
+            self.add_log("warn", "SETTLEMENT BALANCE REFRESH timed out; trading continues.")
+        except Exception as balance_error:
+            logger.debug(f"Unable to refresh settled account balance: {balance_error}")
+
     async def _on_balance(self, balance_data: Dict[str, Any]):
         value = balance_data.get("balance")
         if value is None:
@@ -774,11 +793,10 @@ class TradingBot:
         if self.active_trade_contract_id == contract_id:
             self.active_trade_contract_id = None
 
-        try:
-            settled_balance = await self.client.get_balance()
-            await self._on_balance(settled_balance)
-        except Exception as balance_error:
-            logger.debug(f"Unable to refresh settled account balance: {balance_error}")
+        # Do not await get_balance() here. This method is called from a
+        # contract callback that DerivClient._listen_loop awaits; awaiting a
+        # second websocket request here would deadlock the receiver.
+        asyncio.create_task(self._refresh_balance_after_settlement())
 
         if self.status_broadcast_callback:
             try:
