@@ -25,6 +25,7 @@ public struct DashboardView: View {
 
                         LastDigitWidget(
                             lastQuote: viewModel.lastQuote,
+                            quotePrecision: viewModel.lastQuotePrecision,
                             lastDigit: viewModel.lastDigit,
                             tickHistory: viewModel.tickHistory
                         )
