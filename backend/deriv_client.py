@@ -5,7 +5,7 @@ import ssl
 import certifi
 import requests
 import websockets
-from decimal import Decimal, ROUND_HALF_UP, ROUND_UP
+from decimal import Decimal, ROUND_HALF_UP, ROUND_UP, ROUND_DOWN
 from typing import Optional, Dict, Any, Callable
 from websockets.protocol import State
 
