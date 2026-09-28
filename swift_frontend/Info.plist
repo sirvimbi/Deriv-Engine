@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.example.derivengine</string>
+    <string>com.sirvimbi.derivengine</string>
     <key>CFBundleName</key>
     <string>DerivEngine</string>
     <key>CFBundleDisplayName</key>
@@ -17,7 +17,7 @@
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
-    <string>13.0</string>
+    <string>26.0</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
     <key>NSHighResolutionCapable</key>
