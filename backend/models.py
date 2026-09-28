@@ -77,7 +77,7 @@ class TradingConfig(BaseModel):
     contract_type_mode: str = Field(default="BOTH", description="Allowed digit contract types: DIGITUNDER, DIGITOVER, or BOTH")
     account_type: str = Field(default="demo", description="Deriv account type: demo or real")
 
-class BotStatus(BaseModel):
+class AccountSwitchRequest(BaseModel):\n    account_type: str = Field(description="Target Deriv Options account type: demo or real")\n    confirm_real_account: bool = Field(default=False, description="Explicit confirmation required before switching to real-money trading.")\n\nclass BotStatus(BaseModel):
     is_running: bool
     is_trade_in_progress: bool
     total_profit: float

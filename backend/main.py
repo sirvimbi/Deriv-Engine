@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from models import TradingConfig, BotStatus, ManualTradeRequest, LogMessage
+from models import TradingConfig, BotStatus, ManualTradeRequest, LogMessage, AccountSwitchRequest
 from trading_bot import TradingBot
 from deriv_client import DerivClient
 from runtime import ENGINE_BUILD, ENGINE_DESCRIPTION
@@ -40,6 +40,8 @@ def _normalized_config(config: TradingConfig) -> TradingConfig:
         mode = "BOTH"
     data = config.dict()
     data["contract_type_mode"] = mode
+    account_type = str(data.get("account_type", "demo")).strip().lower()
+    data["account_type"] = account_type if account_type in ("demo", "real") else "demo"
     return TradingConfig.parse_obj(data)
 
 
@@ -96,8 +98,13 @@ async def equity_broadcast_loop():
             # authentication and can race if this loop opens a second OTP
             # session. Once an authenticated client exists, refresh it here.
             if bot.client.authorized:
-                balance = await bot.client.get_balance()
-                await bot._on_balance(balance)
+                active_type = str(bot.client.account_info.get("account_type", "")).lower()
+                configured_type = str(bot.config.account_type).lower()
+                if active_type and active_type != configured_type:
+                    logger.error("Equity refresh blocked: authenticated account=%s but configured account=%s.", active_type, configured_type)
+                else:
+                    balance = await bot.client.get_balance()
+                    await bot._on_balance(balance)
         except Exception as e:
             logger.warning(f"Equity refresh skipped: {e}")
         await asyncio.sleep(3)
@@ -160,11 +167,66 @@ async def get_digit_symbols():
 def get_config():
     return bot.config
 
+@app.post("/api/account/switch")
+async def switch_account(req: AccountSwitchRequest):
+    target = str(req.account_type).strip().lower()
+    if target not in ("demo", "real"):
+        raise HTTPException(status_code=400, detail="Account type must be either 'demo' or 'real'.")
+    if target == "real" and not req.confirm_real_account:
+        raise HTTPException(
+            status_code=400,
+            detail="Explicit confirmation is required before switching to the real-money account."
+        )
+    if bot.is_running:
+        raise HTTPException(
+            status_code=409,
+            detail="Stop the bot before switching trading accounts. The authenticated trading socket cannot be changed while the bot is running."
+        )
+    try:
+        account = await bot.switch_account(target)
+        bot.config.account_type = target
+        persist_config(bot.config)
+        if bot.status_broadcast_callback:
+            await bot.status_broadcast_callback("status", bot.get_status().dict())
+        return {
+            "status": "success",
+            "account_type": target,
+            "account_id": account.get("account_id"),
+            "balance": bot.account_balance,
+            "equity": bot.account_equity,
+            "currency": account.get("currency", bot.config.currency)
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Account switch failed: {exc}")
+
+
 @app.post("/api/config", response_model=TradingConfig)
 async def update_config(config: TradingConfig):
-    # Pydantic validates the numeric ranges; normalize the contract mode once
-    # and persist the canonical configuration that the bot actually receives.
+    # Account selection is an authenticated-session operation, not just a
+    # UI preference. Force callers through /api/account/switch so the existing
+    # WebSocket cannot remain connected to the previous account.
     config = _normalized_config(config)
+    if config.account_type != bot.config.account_type:
+        raise HTTPException(
+            status_code=409,
+            detail="Account type changes must use the account switch operation so the Deriv session is re-authenticated."
+        )
+
+    connection_changed = (
+        config.api_token != bot.config.api_token
+        or config.app_id != bot.config.app_id
+    )
+    if connection_changed:
+        if bot.is_running:
+            raise HTTPException(
+                status_code=409,
+                detail="Stop the bot before changing the Deriv API token or App ID so the authenticated session can be replaced safely."
+            )
+        try:
+            await bot.switch_account(config.account_type, config.api_token, config.app_id)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Deriv session update failed: {exc}")
+
     bot.update_config(config)
     persist_config(bot.config)
     return bot.config
@@ -312,6 +374,14 @@ async def get_account_balance(token: str = None):
     api_token = token or bot.config.api_token
     try:
         if bot.client.authorized:
+            active_type = str(bot.client.account_info.get("account_type", "")).lower()
+            configured_type = str(bot.config.account_type).lower()
+            if active_type and active_type != configured_type:
+                bot.account_balance = None
+                bot.account_equity = None
+                raise RuntimeError(
+                    f"Authenticated Deriv account mismatch: active={active_type}, configured={configured_type}. Re-authentication is required before displaying or trading on this account."
+                )
             balance = await bot.client.get_balance()
         else:
             if not api_token:

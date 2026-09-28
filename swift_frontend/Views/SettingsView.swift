@@ -50,17 +50,28 @@ public struct SettingsView: View {
                 viewModel.clampDigitBarriersForSelectedMode()
             }
             .onChange(of: selectedAccountIsDemo) { _, newIsDemo in
-                DispatchQueue.main.async {
-                    if newIsDemo {
-                        viewModel.config.account_type = "demo"
-                    } else if viewModel.config.account_type != "real" {
-                        showRealAccountConfirm = true
+                guard !viewModel.isSwitchingAccount else { return }
+                if newIsDemo {
+                    guard viewModel.config.account_type != "demo" else { return }
+                    Task {
+                        let success = await viewModel.switchAccount(to: "demo", confirmRealAccount: false)
+                        if !success {
+                            selectedAccountIsDemo = false
+                        }
                     }
+                } else {
+                    guard viewModel.config.account_type != "real" else { return }
+                    showRealAccountConfirm = true
                 }
             }
             .alert("Switch to a real-money account?", isPresented: $showRealAccountConfirm) {
                 Button("Switch to Real Account", role: .destructive) {
-                    viewModel.config.account_type = "real"
+                    Task {
+                        let success = await viewModel.switchAccount(to: "real", confirmRealAccount: true)
+                        if !success {
+                            selectedAccountIsDemo = true
+                        }
+                    }
                 }
                 Button("Stay on Demo", role: .cancel) {
                     selectedAccountIsDemo = true
@@ -78,6 +89,16 @@ public struct SettingsView: View {
                 Text("Real").tag(false)
             }
             .pickerStyle(.segmented)
+            .disabled(viewModel.isSwitchingAccount)
+
+            if viewModel.isSwitchingAccount {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Authenticating the selected Deriv account…")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
 
             HStack(spacing: 8) {
                 Image(systemName: viewModel.config.isDemo ? "info.circle.fill" : "exclamationmark.triangle.fill")
