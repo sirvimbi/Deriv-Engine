@@ -68,6 +68,12 @@ class TradingConfig(BaseModel):
     duration_unit: str = Field(default="t", description="Duration Unit ('t' for ticks, 's' for seconds)")
     currency: str = Field(default="USD", description="Currency Code")
     recovery_wins_required: int = Field(default=2, ge=0, le=50, description="Recovery Wins Required (0-50)")
+    loss_cycle_target: int = Field(
+        default=0,
+        ge=0,
+        le=20,
+        description="Loss Cycle Target: 0 disables loss-amount recovery; 1-20 divides outstanding losses across recovery wins."
+    )
     contract_type_mode: str = Field(default="BOTH", description="Allowed digit contract types: DIGITUNDER, DIGITOVER, or BOTH")
     account_type: str = Field(default="demo", description="Deriv account type: demo or real")
 
