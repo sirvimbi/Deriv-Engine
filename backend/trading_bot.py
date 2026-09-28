@@ -723,6 +723,8 @@ class TradingBot:
                 self.wins_in_row = self.current_win_streak
 
             self.add_log("success", f"Trade WON! +${profit:.2f} | Total Profit: ${self.total_profit:.2f}")
+            self.recovery_cooldown_until = 0.0
+            self._recovery_cooldown_logged = False
 
             # Recovery cycle has two modes. loss_cycle_target > 0 tracks the
             # outstanding loss stake financially; zero preserves the existing
@@ -739,8 +741,6 @@ class TradingBot:
                         self.in_recovery_cycle = False
                         self.recovery_phase = 0
                         self.recovery_prediction_active = False
-        self.recovery_cooldown_until = 0.0
-        self._recovery_cooldown_logged = False
                         self.active_contract_type = None
                         self.predict = self.config.win_predict_digit
                         self.add_log(
@@ -771,8 +771,6 @@ class TradingBot:
                         self.in_recovery_cycle = False
                         self.recovery_phase = 0
                         self.recovery_prediction_active = False
-        self.recovery_cooldown_until = 0.0
-        self._recovery_cooldown_logged = False
                         self.active_contract_type = None
                         self.predict = self.config.win_predict_digit
                         self.add_log(
@@ -794,8 +792,6 @@ class TradingBot:
                 self.recovery_win_count = 0
                 self.recovery_loss_stake = 0.0
                 self.recovery_prediction_active = False
-        self.recovery_cooldown_until = 0.0
-        self._recovery_cooldown_logged = False
                 self.recovery_phase = 0
                 self.active_contract_type = None
                 self.predict = self.config.win_predict_digit
@@ -829,8 +825,6 @@ class TradingBot:
                 self.recovery_phase = 1
                 self.active_contract_type = trade_contract_type
                 self.recovery_prediction_active = False
-        self.recovery_cooldown_until = 0.0
-        self._recovery_cooldown_logged = False
                 self.predict = self.config.loss_predict_digit
                 self.time_duration = self.config.duration
 
@@ -852,8 +846,6 @@ class TradingBot:
                 self.in_recovery_cycle = False
                 self.recovery_phase = 0
                 self.recovery_prediction_active = False
-        self.recovery_cooldown_until = 0.0
-        self._recovery_cooldown_logged = False
                 self.active_contract_type = None
                 self.predict = self.config.win_predict_digit
                 self.time_duration = self.config.duration
@@ -867,8 +859,6 @@ class TradingBot:
                 self.recovery_phase = 1
                 self.active_contract_type = trade_contract_type
                 self.recovery_prediction_active = False
-        self.recovery_cooldown_until = 0.0
-        self._recovery_cooldown_logged = False
                 self.predict = self.config.loss_predict_digit
                 self.time_duration = self.config.duration
                 self.add_log(
