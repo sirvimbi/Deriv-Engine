@@ -74,6 +74,20 @@ public class APIService {
         return try decodeResponse(TradingConfig.self, from: data, endpoint: "config")
     }
 
+    public func switchAccount(accountType: String, confirmRealAccount: Bool) async throws -> AccountSwitchResponse {
+        guard let url = URL(string: "\(baseURL)/api/account/switch") else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "account_type": accountType,
+            "confirm_real_account": confirmRealAccount
+        ])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateHTTPResponse(response, data: data, endpoint: "account switch")
+        return try decodeResponse(AccountSwitchResponse.self, from: data, endpoint: "account switch")
+    }
     public func updateConfig(_ config: TradingConfig) async throws -> TradingConfig {
         guard let url = URL(string: "\(baseURL)/api/config") else {
             throw URLError(.badURL)
@@ -243,4 +257,14 @@ public class APIService {
 private struct DigitSymbolsResponse: Codable {
     let status: String
     let symbols: [DerivSymbol]
+}
+
+
+public struct AccountSwitchResponse: Codable {
+    public let status: String
+    public let account_type: String
+    public let account_id: String?
+    public let balance: Double?
+    public let equity: Double?
+    public let currency: String?
 }
