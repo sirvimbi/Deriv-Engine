@@ -204,6 +204,22 @@ async def update_config(config: TradingConfig):
             status_code=409,
             detail="Account type changes must use the account switch operation so the Deriv session is re-authenticated."
         )
+
+    connection_changed = (
+        config.api_token != bot.config.api_token
+        or config.app_id != bot.config.app_id
+    )
+    if connection_changed:
+        if bot.is_running:
+            raise HTTPException(
+                status_code=409,
+                detail="Stop the bot before changing the Deriv API token or App ID so the authenticated session can be replaced safely."
+            )
+        try:
+            await bot.switch_account(config.account_type, config.api_token, config.app_id)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Deriv session update failed: {exc}")
+
     bot.update_config(config)
     persist_config(bot.config)
     return bot.config
