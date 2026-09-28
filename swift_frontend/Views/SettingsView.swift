@@ -193,6 +193,12 @@ public struct SettingsView: View {
             dropdownRow("Recovery Win Target") {
                 IntegerDropdown("Recovery Win Target", value: $viewModel.config.recovery_wins_required, range: 0...50)
             }
+            dropdownRow("Loss Cycle Target") {
+                IntegerDropdown("Loss Cycle Target", value: $viewModel.config.loss_cycle_target, range: 0...20)
+            }
+            Text("0 = use the existing recovery-win target. 1-20 = divide the outstanding loss stake across recovery wins and continue until the loss cycle is recovered.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             dropdownRow("Allowed Contracts") {
                 ContractModeDropdown(value: $viewModel.config.contract_type_mode)
             }
@@ -284,6 +290,7 @@ private extension SettingsView {
             "Loss Prediction Digit: \(c.loss_predict_digit)",
             "Recovery Win Target Prediction Digit: \(c.recovery_win_predict_digit)",
             "Recovery Win Target: \(c.recovery_wins_required)",
+            "Loss Cycle Target: \(c.loss_cycle_target)",
             "Allowed Contracts: \(c.contract_type_mode)",
             "Ticks: \(c.duration)"
         ]

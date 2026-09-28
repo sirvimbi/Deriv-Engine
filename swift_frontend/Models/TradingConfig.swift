@@ -20,6 +20,7 @@ public struct TradingConfig: Codable, Equatable {
     public var duration_unit: String
     public var currency: String
     public var recovery_wins_required: Int
+    public var loss_cycle_target: Int
     public var contract_type_mode: String
     public var account_type: String
 
@@ -45,6 +46,7 @@ public struct TradingConfig: Codable, Equatable {
         duration_unit: String = "t",
         currency: String = "USD",
         recovery_wins_required: Int = 2,
+        loss_cycle_target: Int = 0,
         contract_type_mode: String = "BOTH",
         account_type: String = "demo"
     ) {
@@ -67,6 +69,7 @@ public struct TradingConfig: Codable, Equatable {
         self.duration_unit = duration_unit
         self.currency = currency
         self.recovery_wins_required = recovery_wins_required
+        self.loss_cycle_target = loss_cycle_target
         self.contract_type_mode = contract_type_mode
         self.account_type = account_type
     }
@@ -98,6 +101,7 @@ public struct TradingConfig: Codable, Equatable {
         duration_unit = try c.decodeIfPresent(String.self, forKey: .duration_unit) ?? "t"
         currency = try c.decodeIfPresent(String.self, forKey: .currency) ?? "USD"
         recovery_wins_required = try c.decodeIfPresent(Int.self, forKey: .recovery_wins_required) ?? 2
+        loss_cycle_target = min(max(try c.decodeIfPresent(Int.self, forKey: .loss_cycle_target) ?? 0, 0), 20)
         contract_type_mode = try c.decodeIfPresent(String.self, forKey: .contract_type_mode) ?? "BOTH"
         account_type = try c.decodeIfPresent(String.self, forKey: .account_type) ?? "demo"
     }

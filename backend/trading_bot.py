@@ -23,6 +23,8 @@ class TradingBot:
         self.time_duration = config.duration
         self.loss_streak = 0
         self.recovery_win_count = 0
+        # Positive amount of loss stake still outstanding in optional loss-cycle recovery mode.
+        self.recovery_loss_stake = 0.0
         self.in_recovery_cycle = False
         self.recovery_phase = 0  # 0 normal, 1 loss digit, 2 recovery target digit
         self.recovery_prediction_active = False
@@ -139,6 +141,7 @@ class TradingBot:
         self.time_duration = self.config.duration
         self.loss_streak = 0
         self.recovery_win_count = 0
+        self.recovery_loss_stake = 0.0
         self.in_recovery_cycle = False
         self.recovery_phase = 0
         self.recovery_prediction_active = False
@@ -165,7 +168,9 @@ class TradingBot:
             f"Under trigger={self.config.under_trigger_digit} | Over trigger={self.config.over_trigger_digit} | "
             f"Win prediction={self.config.win_predict_digit} | Loss prediction={self.config.loss_predict_digit} | "
             f"Recovery prediction={self.config.recovery_win_predict_digit} | "
-            f"Recovery target={max(1, self.config.recovery_wins_required)} wins"
+            f"Recovery target={max(1, self.config.recovery_wins_required)} wins | "
+            f"Loss cycle target={self.config.loss_cycle_target} "
+            f"({'enabled' if self.config.loss_cycle_target > 0 else 'disabled'})"
         )
         if self.status_broadcast_callback:
             try:
@@ -317,6 +322,21 @@ class TradingBot:
             trade_prediction = int(self.config.win_predict_digit)
             self.predict = trade_prediction
         trade_stake = float(self.stake)
+        recovery_target_profit: Optional[float] = None
+        if (
+            self.in_recovery_cycle
+            and self.config.loss_cycle_target > 0
+            and self.recovery_loss_stake > 0
+        ):
+            remaining_recovery_wins = max(1, self.config.loss_cycle_target - self.recovery_win_count)
+            recovery_target_profit = self.recovery_loss_stake / remaining_recovery_wins
+            self.add_log(
+                "info",
+                f"LOSS-CYCLE TARGET | outstanding=${self.recovery_loss_stake:.2f} | "
+                f"recovered_wins={self.recovery_win_count} | "
+                f"remaining_target_wins={remaining_recovery_wins} | "
+                f"target_profit=${recovery_target_profit:.2f}"
+            )
 
         # The configuration engine intentionally permits the full digit domain
         # 0-9. Validate the barrier only after the concrete contract type is
@@ -352,9 +372,17 @@ class TradingBot:
                 duration=self.time_duration,
                 duration_unit=self.config.duration_unit,
                 barrier=trade_prediction,
-                currency=self.config.currency
+                currency=self.config.currency,
+                target_profit=recovery_target_profit,
+                max_amount=self.config.max_stake if recovery_target_profit is not None else None
             )
-            
+
+            # The client may resize a loss-cycle recovery trade from the live proposal payout.
+            # Settlement must use the actual purchased stake.
+            trade_stake = float(buy_res.get("stake", trade_stake))
+            if recovery_target_profit is not None:
+                self.stake = trade_stake
+
             contract_id = buy_res.get("contract_id")
             if not contract_id:
                 self.add_log("error", "Received invalid contract_id from Deriv.")
@@ -593,38 +621,71 @@ class TradingBot:
 
             self.add_log("success", f"Trade WON! +${profit:.2f} | Total Profit: ${self.total_profit:.2f}")
 
-            # Recovery cycle: the first Martingale trade keeps the existing
-            # loss prediction. Once that trade completes, every subsequent
-            # recovery trade uses the dedicated recovery-win prediction until
-            # the configured number of recovery wins is completed.
+            # Recovery cycle has two modes. loss_cycle_target > 0 tracks the
+            # outstanding loss stake financially; zero preserves the existing
+            # recovery-win-count behavior.
             if self.in_recovery_cycle:
-                self.recovery_win_count += 1
-                target = max(1, self.config.recovery_wins_required)
-                if self.recovery_win_count >= target:
-                    self.stake = self.config.base_stake
-                    self.recovery_win_count = 0
-                    self.in_recovery_cycle = False
-                    self.recovery_phase = 0
-                    self.recovery_prediction_active = False
-                    self.active_contract_type = None
-                    self.predict = self.config.win_predict_digit
-                    self.add_log(
-                        "info",
-                        f"Recovery win goal reached ({target} wins). Contract={trade_contract_type}; "
-                        f"resetting stake to base ${self.stake:.2f} and prediction digit to {self.predict}."
-                    )
+                if self.config.loss_cycle_target > 0:
+                    self.recovery_win_count += 1
+                    recovered_profit = max(0.0, profit)
+                    self.recovery_loss_stake = max(0.0, self.recovery_loss_stake - recovered_profit)
+                    if self.recovery_loss_stake <= 0.005:
+                        self.recovery_loss_stake = 0.0
+                        self.stake = self.config.base_stake
+                        self.recovery_win_count = 0
+                        self.in_recovery_cycle = False
+                        self.recovery_phase = 0
+                        self.recovery_prediction_active = False
+                        self.active_contract_type = None
+                        self.predict = self.config.win_predict_digit
+                        self.add_log(
+                            "info",
+                            f"LOSS-CYCLE RECOVERED | recovery_profit=${recovered_profit:.2f} | "
+                            f"remaining_loss=${self.recovery_loss_stake:.2f}. "
+                            f"Resetting stake to base ${self.stake:.2f}."
+                        )
+                    else:
+                        self.recovery_phase = 2
+                        self.recovery_prediction_active = True
+                        self.predict = self.config.recovery_win_predict_digit
+                        remaining_wins = max(1, self.config.loss_cycle_target - self.recovery_win_count)
+                        next_target = self.recovery_loss_stake / remaining_wins
+                        self.add_log(
+                            "info",
+                            f"LOSS-CYCLE RECOVERY WIN | recovered=${recovered_profit:.2f} | "
+                            f"outstanding=${self.recovery_loss_stake:.2f} | "
+                            f"recovery_wins={self.recovery_win_count} | "
+                            f"next_target_profit=${next_target:.2f}.",
+                        )
                 else:
-                    self.recovery_phase = 2
-                    self.recovery_prediction_active = True
-                    self.predict = self.config.recovery_win_predict_digit
-                    self.add_log(
-                        "info",
-                        f"Recovery win {self.recovery_win_count}/{target}. Continuing "
-                        f"{trade_contract_type} recovery with prediction digit {self.predict}."
-                    )
+                    self.recovery_win_count += 1
+                    target = max(1, self.config.recovery_wins_required)
+                    if self.recovery_win_count >= target:
+                        self.stake = self.config.base_stake
+                        self.recovery_win_count = 0
+                        self.in_recovery_cycle = False
+                        self.recovery_phase = 0
+                        self.recovery_prediction_active = False
+                        self.active_contract_type = None
+                        self.predict = self.config.win_predict_digit
+                        self.add_log(
+                            "info",
+                            f"Recovery win goal reached ({target} wins). Contract={trade_contract_type}; "
+                            f"resetting stake to base ${self.stake:.2f} and prediction digit to {self.predict}."
+                        )
+                    else:
+                        self.recovery_phase = 2
+                        self.recovery_prediction_active = True
+                        self.predict = self.config.recovery_win_predict_digit
+                        self.add_log(
+                            "info",
+                            f"Recovery win {self.recovery_win_count}/{target}. Continuing "
+                            f"{trade_contract_type} recovery with prediction digit {self.predict}."
+                        )
             else:
                 self.stake = self.config.base_stake
                 self.recovery_win_count = 0
+                self.recovery_loss_stake = 0.0
                 self.recovery_prediction_active = False
                 self.recovery_phase = 0
                 self.active_contract_type = None
@@ -646,10 +707,37 @@ class TradingBot:
             self.loss_streak += 1
             self.add_log("error", f"Trade LOST! -${abs(profit):.2f} | Loss Streak: {self.loss_streak} | Total Profit: ${self.total_profit:.2f}")
 
-            # Loss safety streak check
-            if self.loss_streak >= self.config.max_loss_streak:
+            # Optional loss-cycle mode keeps a financial ledger of all losing stakes.
+            # Recovery losses are added to the same ledger and do not consume a
+            # recovery-win slot.
+            if self.config.loss_cycle_target > 0:
+                self.recovery_loss_stake += max(0.0, trade_stake)
+                if not self.in_recovery_cycle:
+                    self.recovery_win_count = 0
+
+                self.stake = min(self.stake * self.config.martingale, self.config.max_stake)
+                self.in_recovery_cycle = True
+                self.recovery_phase = 1
+                self.active_contract_type = trade_contract_type
+                self.recovery_prediction_active = False
+                self.predict = self.config.loss_predict_digit
+                self.time_duration = self.config.duration
+
+                remaining_wins = max(1, self.config.loss_cycle_target - self.recovery_win_count)
+                target_profit = self.recovery_loss_stake / remaining_wins
+                self.add_log(
+                    "info",
+                    f"LOSS-CYCLE UPDATED | loss_stake_added=${trade_stake:.2f} | "
+                    f"outstanding=${self.recovery_loss_stake:.2f} | "
+                    f"recovery_wins={self.recovery_win_count} | "
+                    f"target_wins={self.config.loss_cycle_target} | "
+                    f"next_target_profit=${target_profit:.2f} | "
+                    f"contract={self.active_contract_type}.",
+                )
+            elif self.loss_streak >= self.config.max_loss_streak:
                 self.stake = self.config.base_stake
                 self.recovery_win_count = 0
+                self.recovery_loss_stake = 0.0
                 self.in_recovery_cycle = False
                 self.recovery_phase = 0
                 self.recovery_prediction_active = False
@@ -659,11 +747,9 @@ class TradingBot:
                 self.loss_streak = 0
                 self.add_log("warn", f"Max loss streak threshold ({self.config.max_loss_streak}) hit! Resetting stake to base: ${self.stake:.2f}")
             else:
-                # Preserve the existing loss-prediction trade immediately after
-                # a loss. The following trade(s) in the recovery cycle switch to
-                # the dedicated recovery-win prediction digit.
                 self.stake = min(self.stake * self.config.martingale, self.config.max_stake)
                 self.recovery_win_count = 0
+                self.recovery_loss_stake = 0.0
                 self.in_recovery_cycle = True
                 self.recovery_phase = 1
                 self.active_contract_type = trade_contract_type
@@ -674,9 +760,8 @@ class TradingBot:
                     "info",
                     f"Next stake increased to ${self.stake:.2f} (Martingale x{self.config.martingale}). "
                     f"Recovery contract LOCKED to {self.active_contract_type}; "
-                    f"next recovery prediction={self.predict}; recovery wins reset to 0."
+                    f"next recovery prediction={self.predict}; recovery wins reset to 0.",
                 )
-
         # Check stopping criteria
         if self.total_profit >= self.config.take_profit:
             await self.stop(f"Take Profit limit reached (+${self.total_profit:.2f} >= ${self.config.take_profit:.2f})")
