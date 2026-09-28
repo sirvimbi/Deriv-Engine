@@ -8,6 +8,7 @@ public class SettingsViewModel: ObservableObject {
     @Published public var saveSuccess: Bool = false
     @Published public var errorMessage: String? = nil
     @Published public var availableSymbols: [DerivSymbol] = []
+    @Published public var isSwitchingAccount: Bool = false
 
     public init() {
         loadConfig()
@@ -60,6 +61,25 @@ public class SettingsViewModel: ObservableObject {
         config.win_predict_digit = min(max(config.win_predict_digit, range.lowerBound), range.upperBound)
         config.loss_predict_digit = min(max(config.loss_predict_digit, range.lowerBound), range.upperBound)
         config.recovery_win_predict_digit = min(max(config.recovery_win_predict_digit, range.lowerBound), range.upperBound)
+    }
+
+    /// Switch the actual authenticated Deriv trading account and refresh the
+    /// backend configuration only after the new account has been verified.
+    @discardableResult
+    public func switchAccount(to accountType: String, confirmRealAccount: Bool) async -> Bool {
+        isSwitchingAccount = true
+        errorMessage = nil
+        saveSuccess = false
+        defer { isSwitchingAccount = false }
+        do {
+            _ = try await APIService.shared.switchAccount(accountType: accountType, confirmRealAccount: confirmRealAccount)
+            config = try await APIService.shared.getConfig()
+            saveSuccess = true
+            return true
+        } catch {
+            errorMessage = "Account switch failed: \(error.localizedDescription)"
+            return false
+        }
     }
 
     public func saveConfig() {
