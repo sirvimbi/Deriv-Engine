@@ -96,8 +96,13 @@ async def equity_broadcast_loop():
             # authentication and can race if this loop opens a second OTP
             # session. Once an authenticated client exists, refresh it here.
             if bot.client.authorized:
-                balance = await bot.client.get_balance()
-                await bot._on_balance(balance)
+                active_type = str(bot.client.account_info.get("account_type", "")).lower()
+                configured_type = str(bot.config.account_type).lower()
+                if active_type and active_type != configured_type:
+                    logger.error("Equity refresh blocked: authenticated account=%s but configured account=%s.", active_type, configured_type)
+                else:
+                    balance = await bot.client.get_balance()
+                    await bot._on_balance(balance)
         except Exception as e:
             logger.warning(f"Equity refresh skipped: {e}")
         await asyncio.sleep(3)
@@ -367,6 +372,14 @@ async def get_account_balance(token: str = None):
     api_token = token or bot.config.api_token
     try:
         if bot.client.authorized:
+            active_type = str(bot.client.account_info.get("account_type", "")).lower()
+            configured_type = str(bot.config.account_type).lower()
+            if active_type and active_type != configured_type:
+                bot.account_balance = None
+                bot.account_equity = None
+                raise RuntimeError(
+                    f"Authenticated Deriv account mismatch: active={active_type}, configured={configured_type}. Re-authentication is required before displaying or trading on this account."
+                )
             balance = await bot.client.get_balance()
         else:
             if not api_token:
