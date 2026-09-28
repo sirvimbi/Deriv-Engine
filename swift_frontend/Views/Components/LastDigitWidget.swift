@@ -21,12 +21,12 @@ public struct LastDigitWidget: View {
                         .foregroundColor(.secondary)
 
                     if let quote = lastQuote {
-                        Text(String(format: "%.2f", quote))
+                        Text(String(format: "%.4f", quote))
                             .font(.system(size: 30, weight: .heavy, design: .monospaced))
                             .foregroundColor(.primary)
                             .contentTransition(.numericText())
                     } else {
-                        Text("---.--")
+                        Text("---.----")
                             .font(.system(size: 30, weight: .heavy, design: .monospaced))
                             .foregroundColor(.secondary.opacity(0.5))
                     }
