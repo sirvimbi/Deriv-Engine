@@ -102,20 +102,27 @@ class TradingBot:
     async def start(self):
         if self.is_running:
             return
-        self.add_log("info", f"Authorizing bot with Deriv API Token...")
+        self.add_log("info", "Authorizing bot with Deriv API Token...")
         try:
             # authorize() obtains a current Deriv OTP URL and establishes the authenticated socket.
-            # Do not call connect() first: that falls back to the legacy WebSocket host and can return HTTP 520.
             await self.client.authorize(self.config.api_token)
-            await self.client.subscribe_balance(self._on_balance)
+            try:
+                await self.client.subscribe_balance(self._on_balance)
+            except Exception as sub_err:
+                logger.warning(f"Balance subscription notice: {sub_err}")
+
             try:
                 initial_balance = await self.client.get_balance()
                 await self._on_balance(initial_balance)
             except Exception as balance_error:
                 self.add_log("warn", f"Initial account balance unavailable: {balance_error}")
         except Exception as e:
-            self.add_log("error", f"Authorization failed: {str(e)}")
-            raise e
+            err_str = str(e)
+            if "already subscribed to balance" in err_str.lower():
+                self.add_log("info", "Connected and authorized on Deriv account.")
+            else:
+                self.add_log("error", f"Authorization failed: {err_str}")
+                raise e
 
         # Reset session metrics and start a fresh execution-log/history session.
         self.logs.clear()

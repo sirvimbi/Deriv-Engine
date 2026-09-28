@@ -17,6 +17,7 @@ local.properties
 # Local Deriv Engine runtime settings
 backend/trading_config.json
 backend/trading_config.tmp
+backend/server.log
 backend/venv/
 __pycache__/
 *.pyc
