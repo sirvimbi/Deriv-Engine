@@ -468,18 +468,17 @@ class DerivClient:
         duration: int = 1,
         duration_unit: str = "t",
         barrier: Optional[int] = None,
-        currency: str = "USD"
+        currency: str = "USD",
+        target_profit: Optional[float] = None,
+        max_amount: Optional[float] = None
     ) -> Dict[str, Any]:
         """
-        Current Deriv Options flow:
-        1. Request a proposal for the exact stake.
-        2. Buy that proposal using its proposal ID.
+        Buy a contract using a current Deriv proposal.
 
-        The previous implementation sent the old direct-buy shape
-        {"buy": 1, "price": ..., "parameters": ...}. The current API
-        workflow documents buying with a proposal ID. Using the proposal
-        also gives us Deriv's actual ask_price instead of treating the
-        stake as the contract purchase price.
+        When target_profit is supplied, quote the requested stake first, derive
+        the current proposal profit rate, then resize the stake so the winning
+        contract targets the requested recovery profit. The final proposal is
+        always refreshed at the calculated stake before purchase.
         """
         normalized_amount = Decimal(str(amount)).quantize(
             Decimal("0.01"),
@@ -488,18 +487,12 @@ class DerivClient:
         if normalized_amount < Decimal("0.01"):
             raise ValueError("Trade amount must be at least 0.01.")
 
-        # Fail before requesting a proposal when the authenticated account
-        # cannot afford the configured stake. Deriv otherwise returns a
-        # successful proposal and only rejects the subsequent buy, which makes
-        # the execution log look like a transport/trading bug.
-        if self.authorized:
-            balance_response = await self.get_balance()
-            available_balance = Decimal(str(balance_response.get("balance", "0")))
-            if available_balance < normalized_amount:
-                raise ValueError(
-                    f"Insufficient Deriv balance: available={available_balance:.2f} "
-                    f"{currency}, required={normalized_amount:.2f} {currency}."
-                )
+        target_profit_decimal = None
+        if target_profit is not None and float(target_profit) > 0:
+            target_profit_decimal = Decimal(str(target_profit)).quantize(
+                Decimal("0.01"),
+                rounding=ROUND_HALF_UP
+            )
 
         proposal_params: Dict[str, Any] = {
             "proposal": 1,
@@ -517,9 +510,7 @@ class DerivClient:
         proposal_response = await self.send_request(proposal_params)
         if "error" in proposal_response:
             raise Exception(
-                proposal_response["error"].get(
-                    "message", "Contract proposal failed"
-                )
+                proposal_response["error"].get("message", "Contract proposal failed")
             )
 
         proposal = proposal_response.get("proposal") or {}
@@ -529,12 +520,74 @@ class DerivClient:
 
         ask_price_raw = proposal.get("ask_price")
         if ask_price_raw is None:
-            # A proposal without ask_price cannot be safely purchased.
             raise Exception("Deriv proposal did not return an ask_price.")
 
-        # Deriv's buy price accepts no more than two decimal places.
-        # Always round upward to two decimals so the maximum buy price is
-        # never below Deriv's quoted ask.
+        ask_price_decimal = Decimal(str(ask_price_raw))
+        if ask_price_decimal <= 0:
+            raise Exception("Deriv returned an invalid proposal ask_price.")
+
+        # Deriv exposes payout on proposals. For stake-basis contracts the
+        # expected winning profit is payout - ask_price, so use that live quote
+        # rather than a hard-coded payout percentage.
+        payout_decimal = None
+        if target_profit_decimal is not None and proposal.get("payout") is not None:
+            try:
+                payout_decimal = Decimal(str(proposal.get("payout")))
+            except (TypeError, ValueError, ArithmeticError):
+                payout_decimal = None
+
+        if target_profit_decimal is not None and payout_decimal is not None:
+            quoted_profit = payout_decimal - ask_price_decimal
+            profit_rate = quoted_profit / ask_price_decimal if ask_price_decimal > 0 else Decimal("0")
+
+            if profit_rate > 0:
+                calculated_amount = (target_profit_decimal / profit_rate).quantize(
+                    Decimal("0.01"),
+                    rounding=ROUND_UP
+                )
+                if max_amount is not None:
+                    calculated_amount = min(
+                        calculated_amount,
+                        Decimal(str(max_amount)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+                        if False else Decimal(str(max_amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    )
+                normalized_amount = max(Decimal("0.01"), calculated_amount)
+
+                if normalized_amount != Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP):
+                    logger.info(
+                        "Recovery target sizing | target_profit=%s | quoted_profit=%s | "
+                        "profit_rate=%.6f | calculated_stake=%s",
+                        f"{target_profit_decimal:.2f}",
+                        f"{quoted_profit:.2f}",
+                        float(profit_rate),
+                        f"{normalized_amount:.2f}"
+                    )
+                    proposal_params["amount"] = float(normalized_amount)
+                    proposal_response = await self.send_request(proposal_params)
+                    if "error" in proposal_response:
+                        raise Exception(
+                            proposal_response["error"].get("message", "Recovery proposal failed")
+                        )
+                    proposal = proposal_response.get("proposal") or {}
+                    proposal_id = proposal.get("id")
+                    ask_price_raw = proposal.get("ask_price")
+                    if not proposal_id or ask_price_raw is None:
+                        raise Exception("Deriv returned an incomplete recovery proposal.")
+            else:
+                logger.warning(
+                    "Recovery target sizing skipped: proposal payout did not exceed ask_price."
+                )
+
+        # Check balance only after the final recovery stake has been calculated.
+        if self.authorized:
+            balance_response = await self.get_balance()
+            available_balance = Decimal(str(balance_response.get("balance", "0")))
+            if available_balance < normalized_amount:
+                raise ValueError(
+                    f"Insufficient Deriv balance: available={available_balance:.2f} "
+                    f"{currency}, required={normalized_amount:.2f} {currency}."
+                )
+
         buy_price_decimal = Decimal(str(ask_price_raw)).quantize(
             Decimal("0.01"),
             rounding=ROUND_UP
@@ -542,34 +595,32 @@ class DerivClient:
         if buy_price_decimal < Decimal("0.01"):
             raise Exception("Deriv returned an invalid proposal ask_price.")
 
-        # Keep both the numeric value and its exact wire representation at
-        # two decimal places. Deriv's buy endpoint accepts a numeric price and
-        # rejects prices with excess decimal precision.
         buy_price_text = f"{buy_price_decimal:.2f}"
         buy_price = float(buy_price_text)
 
         logger.info(
-            "Buying proposal %s | stake=%s | ask_price=%s | buy_price=%s",
+            "Buying proposal %s | stake=%s | ask_price=%s | buy_price=%s%s",
             proposal_id,
             f"{normalized_amount:.2f}",
             str(ask_price_raw),
-            buy_price_text
+            buy_price_text,
+            f" | target_profit={target_profit_decimal:.2f}" if target_profit_decimal is not None else ""
         )
 
         response = await self.send_request(
-            {
-                "buy": str(proposal_id),
-                "price": buy_price
-            },
+            {"buy": str(proposal_id), "price": buy_price},
             exact_numeric_fields={"price": buy_price_text}
         )
         if "error" in response:
             raise Exception(
-                response["error"].get(
-                    "message", "Contract purchase failed"
-                )
+                response["error"].get("message", "Contract purchase failed")
             )
-        return response.get("buy", {})
+
+        buy = response.get("buy", {})
+        if isinstance(buy, dict):
+            buy.setdefault("stake", float(normalized_amount))
+            buy.setdefault("buy_price", float(buy_price_decimal))
+        return buy
 
     async def subscribe_contract(self, contract_id: int, callback: Callable):
         if contract_id not in self.contract_callbacks:
