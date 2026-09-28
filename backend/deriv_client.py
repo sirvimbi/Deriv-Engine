@@ -548,8 +548,7 @@ class DerivClient:
                 if max_amount is not None:
                     calculated_amount = min(
                         calculated_amount,
-                        Decimal(str(max_amount)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
-                        if False else Decimal(str(max_amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                        Decimal(str(max_amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
                     )
                 normalized_amount = max(Decimal("0.01"), calculated_amount)
 
