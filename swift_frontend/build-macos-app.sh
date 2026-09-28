@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 APP_NAME="Deriv Engine.app"
+BUNDLE_ID="com.sirvimbi.derivengine"
 BUILD_DIR="${BUILD_DIR:-$ROOT/.build-macos}"
 APP_DIR="$BUILD_DIR/$APP_NAME"
 CONTENTS="$APP_DIR/Contents"
@@ -62,11 +63,22 @@ chmod 755 "$EXECUTABLE"
 
 # Ad-hoc signing gives LaunchServices a valid application bundle while keeping
 # this developer build independent of an Apple Developer certificate.
-codesign --force --deep --sign - "$APP_DIR" >/dev/null
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$CONTENTS/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleExecutable DerivEngine" "$CONTENTS/Info.plist"
+
+# Sign with the same explicit bundle identifier that LaunchServices sees in Info.plist.
+codesign --force --deep --sign - --identifier "$BUNDLE_ID" "$APP_DIR" >/dev/null
+
+# Fail the build instead of producing an app that LaunchServices cannot index.
+ACTUAL_BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$CONTENTS/Info.plist")
+if [[ "$ACTUAL_BUNDLE_ID" != "$BUNDLE_ID" ]]; then
+    echo "error: bundle identifier mismatch: $ACTUAL_BUNDLE_ID" >&2
+    exit 1
+fi
 
 echo
 echo "Built: $APP_DIR"
-echo "Bundle identifier: com.sirvimbi.derivengine"
+echo "Bundle identifier: $BUNDLE_ID"
 echo
 echo "Launch with:"
 echo "  open \"$APP_DIR\""
