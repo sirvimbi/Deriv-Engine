@@ -89,6 +89,16 @@ public struct SettingsView: View {
                 Text("Real").tag(false)
             }
             .pickerStyle(.segmented)
+            .disabled(viewModel.isSwitchingAccount)
+
+            if viewModel.isSwitchingAccount {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Authenticating the selected Deriv account…")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
 
             HStack(spacing: 8) {
                 Image(systemName: viewModel.config.isDemo ? "info.circle.fill" : "exclamationmark.triangle.fill")
