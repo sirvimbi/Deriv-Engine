@@ -481,7 +481,7 @@ class DerivClient:
         error = response.get("error") or {}
         message = str(error.get("message", ""))
         match = re.search(
-            r"(?:at least|minimum(?:\\s+stake)?(?:\\s+amount)?(?:\\s+is)?)\\s*\\$?\\s*(\\d+(?:\\.\\d+)?)",
+            r"(?:at least|minimum(?:\s+stake)?(?:\s+amount)?(?:\s+is)?)\s*\$?\s*(\d+(?:\.\d+)?)",
             message,
             re.IGNORECASE,
         )
