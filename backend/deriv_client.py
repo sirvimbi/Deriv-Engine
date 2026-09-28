@@ -343,27 +343,22 @@ class DerivClient:
             raise ValueError("Deriv API token is required.")
 
         async with self._auth_lock:
-            # Authentication is idempotent for the shared client. This is
-            # important because /api/account/balance, the equity loop, bot
-            # startup, and manual trading can all request authentication at
-            # nearly the same time. Do not mint a second OTP when the current
-            # authenticated socket is already usable.
+            # Authentication is idempotent for the shared client. If already authorized
+            # and socket is OPEN, return current account info immediately.
             if (
                 self.authorized
-                and self._auth_token == normalized_token
                 and self.ws
                 and self.ws.state is State.OPEN
             ):
-                return {"authorize": self.account_info}
+                if not self._auth_token or self._auth_token == normalized_token:
+                    return {"authorize": self.account_info}
 
             try:
-                auth = await self._get_authenticated_ws_url(normalized_token)
-
-                # Replace an old socket only after the fresh OTP has been
-                # obtained. This minimizes the unauthenticated window.
+                # Disconnect any old socket cleanly before requesting a new OTP/auth socket
                 if self.ws:
                     await self.disconnect()
 
+                auth = await self._get_authenticated_ws_url(normalized_token)
                 await self._connect_url(auth["url"])
                 self._auth_token = normalized_token
                 self.authorized = True
@@ -373,7 +368,12 @@ class DerivClient:
                     f"({self.account_info.get('account_type', self.account_type)})."
                 )
                 return {"authorize": self.account_info}
-            except Exception:
+            except Exception as e:
+                err_msg = str(e).lower()
+                if "already subscribed" in err_msg or "alreadysubscribed" in err_msg:
+                    logger.info("Deriv WebSocket already authorized and subscribed to balance.")
+                    self.authorized = True
+                    return {"authorize": self.account_info}
                 self.authorized = False
                 raise
 
@@ -381,12 +381,28 @@ class DerivClient:
         """Subscribe to Deriv balance updates on the authenticated WebSocket."""
         if callback not in self.balance_callbacks:
             self.balance_callbacks.append(callback)
-        response = await self.send_request({"balance": 1, "subscribe": 1})
-        if "error" in response:
+
+        try:
+            response = await self.send_request({"balance": 1, "subscribe": 1})
+            if "error" in response:
+                err = response["error"]
+                err_msg = err.get("message", "")
+                err_code = err.get("code", "")
+                if "already subscribed" in err_msg.lower() or err_code == "AlreadySubscribed":
+                    logger.info("Already subscribed to balance updates for account.")
+                    return response
+                if callback in self.balance_callbacks:
+                    self.balance_callbacks.remove(callback)
+                raise Exception(err_msg or "Balance subscription failed")
+            return response
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "already subscribed" in err_msg or "alreadysubscribed" in err_msg:
+                logger.info("Already subscribed to balance updates for account.")
+                return {"balance": 1, "subscribe": 1}
             if callback in self.balance_callbacks:
                 self.balance_callbacks.remove(callback)
-            raise Exception(response["error"].get("message", "Balance subscription failed"))
-        return response
+            raise e
 
     async def subscribe_ticks(self, symbol: str, callback: Callable):
         if callback not in self.tick_callbacks:
@@ -589,5 +605,11 @@ class DerivClient:
     async def get_balance(self) -> Dict[str, Any]:
         res = await self.send_request({"balance": 1})
         if "error" in res:
-            raise Exception(res["error"].get("message", "Failed to fetch balance"))
+            err = res["error"]
+            err_msg = err.get("message", "")
+            err_code = err.get("code", "")
+            if "already subscribed" in err_msg.lower() or err_code == "AlreadySubscribed":
+                logger.info("Balance request noted existing balance subscription.")
+                return res.get("balance", {})
+            raise Exception(err_msg or "Failed to fetch balance")
         return res.get("balance", {})
