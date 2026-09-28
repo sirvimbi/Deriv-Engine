@@ -2,17 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleDevelopmentRegion</key>
-    <string>en</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.example.derivengine</string>
+    <key>CFBundleName</key>
+    <string>DerivEngine</string>
     <key>CFBundleDisplayName</key>
     <string>Deriv Engine</string>
     <key>CFBundleExecutable</key>
-    <string>DerivEngine</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.sirvimbi.derivengine</string>
-    <key>CFBundleInfoDictionaryVersion</key>
-    <string>6.0</string>
-    <key>CFBundleName</key>
     <string>DerivEngine</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
@@ -21,8 +17,10 @@
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
-    <string>26.0</string>
+    <string>13.0</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
 </dict>
 </plist>

@@ -2,7 +2,9 @@ import SwiftUI
 
 @main
 struct DerivEngineApp: App {
+#if os(macOS)
     @NSApplicationDelegateAdaptor(DerivEngineAppDelegate.self) private var appDelegate
+#endif
 
     var body: some Scene {
         WindowGroup {
@@ -15,3 +17,4 @@ struct DerivEngineApp: App {
         .windowResizability(.contentSize)
     }
 }
+

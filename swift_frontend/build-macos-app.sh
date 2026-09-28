@@ -30,6 +30,7 @@ SWIFT_SOURCES=()
 while IFS= read -r -d '' SOURCE; do
     SWIFT_SOURCES+=( "$SOURCE" )
 done < <(find "$ROOT" -type f -name '*.swift' \
+    ! -name 'Package.swift' \
     ! -path "$ROOT/.build/*" \
     ! -path "$ROOT/Tests/*" \
     ! -path "$ROOT/test/*" -print0)

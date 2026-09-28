@@ -20,6 +20,7 @@ let package = Package(
             path: ".",
             sources: [
                 "DerivEngineApp.swift",
+                "DerivEngineAppDelegate.swift",
                 "Models/TradingConfig.swift",
                 "Models/BotStatus.swift",
                 "Models/Transaction.swift",
@@ -43,3 +44,4 @@ let package = Package(
         )
     ]
 )
+

@@ -246,12 +246,12 @@ public class DashboardViewModel: ObservableObject {
                     _ = try await APIService.shared.stopBot()
                 } else {
                     let runtime = try await APIService.shared.getRuntime()
-                    guard runtime.engine_build == "recovery-state-v3" else {
+                    guard runtime.engine_build == "recovery-state-v4-auth-session" else {
                         throw NSError(
                             domain: "BackendRuntime",
                             code: 409,
                             userInfo: [NSLocalizedDescriptionKey:
-                                "Backend is outdated (\(runtime.engine_build)). Restart the backend from the current repository before starting."]
+                                "Backend build mismatch (\(runtime.engine_build)). Please restart backend from current repository."]
                         )
                     }
                     _ = try await APIService.shared.startBot()
