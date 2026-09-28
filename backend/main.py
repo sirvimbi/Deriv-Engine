@@ -40,6 +40,8 @@ def _normalized_config(config: TradingConfig) -> TradingConfig:
         mode = "BOTH"
     data = config.dict()
     data["contract_type_mode"] = mode
+    account_type = str(data.get("account_type", "demo")).strip().lower()
+    data["account_type"] = account_type if account_type in ("demo", "real") else "demo"
     return TradingConfig.parse_obj(data)
 
 
