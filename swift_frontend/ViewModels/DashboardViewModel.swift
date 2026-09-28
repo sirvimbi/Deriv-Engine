@@ -83,6 +83,7 @@ public class DashboardViewModel: ObservableObject {
         return rows
     }
     @Published public var lastQuote: Double? = nil
+    @Published public var lastQuotePrecision: Int? = nil
     @Published public var lastDigit: Int? = nil
     @Published public var tickHistory: [Int] = [] // recent last digits
     @Published public var isConnecting: Bool = false
@@ -122,6 +123,7 @@ public class DashboardViewModel: ObservableObject {
             .sink { [weak self] tick in
                 guard let self = self else { return }
                 self.lastQuote = tick.quote
+                self.lastQuotePrecision = tick.pip_size.map { max(0, $0) }
                 self.lastDigit = tick.last_digit
                 self.tickHistory.append(tick.last_digit)
                 if self.tickHistory.count > 20 {

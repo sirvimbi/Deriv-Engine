@@ -2,11 +2,13 @@ import SwiftUI
 
 public struct LastDigitWidget: View {
     public let lastQuote: Double?
+    public let quotePrecision: Int?
     public let lastDigit: Int?
     public let tickHistory: [Int]
 
-    public init(lastQuote: Double?, lastDigit: Int?, tickHistory: [Int]) {
+    public init(lastQuote: Double?, quotePrecision: Int? = nil, lastDigit: Int?, tickHistory: [Int]) {
         self.lastQuote = lastQuote
+        self.quotePrecision = quotePrecision
         self.lastDigit = lastDigit
         self.tickHistory = tickHistory
     }
@@ -21,7 +23,7 @@ public struct LastDigitWidget: View {
                         .foregroundColor(.secondary)
 
                     if let quote = lastQuote {
-                        Text(String(format: "%.4f", quote))
+                        Text(formattedQuote(quote))
                             .font(.system(size: 30, weight: .heavy, design: .monospaced))
                             .foregroundColor(.primary)
                             .contentTransition(.numericText())
@@ -86,6 +88,15 @@ public struct LastDigitWidget: View {
             }
         }
         .cardStyle(padding: 16, radius: Theme.cornerRadiusLarge)
+    }
+
+    private func formattedQuote(_ quote: Double) -> String {
+        // Use Deriv's pip_size instead of forcing every market to four
+        // decimal places. For example R_100 quotes at two decimals should
+        // display 782.64, not the misleading 782.6400. Markets that actually
+        // provide four decimal places will still display all four.
+        let precision = max(0, min(10, quotePrecision ?? 2))
+        return String(format: "%.*f", precision, quote)
     }
 
     private func digitColor(_ digit: Int?) -> Color {
