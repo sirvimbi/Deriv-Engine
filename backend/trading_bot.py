@@ -87,6 +87,70 @@ class TradingBot:
             except Exception as e:
                 logger.debug(f"Unable to broadcast log reset: {e}")
 
+    async def switch_account(self, account_type: str, api_token: Optional[str] = None, app_id: Optional[str] = None):
+        """Switch the authenticated Deriv Options account before trading resumes.
+
+        Deriv account-scoped WebSockets are tied to the account selected when
+        the OTP is issued. Changing only the local account_type flag is not
+        enough; the existing socket must be closed and a fresh OTP/socket must
+        be established for the target account.
+        """
+        target = str(account_type).strip().lower()
+        if target not in ("demo", "real"):
+            raise ValueError("Account type must be either 'demo' or 'real'.")
+        if self.is_running:
+            raise RuntimeError("Stop the bot before switching trading accounts. No account switch is allowed while the bot is running.")
+        if self.is_trade_in_progress:
+            raise RuntimeError("An active trade is still settling. Wait for settlement before switching accounts.")
+
+        token = api_token if api_token is not None else self.config.api_token
+        target_app_id = app_id if app_id is not None else self.config.app_id
+        if not token:
+            raise ValueError("Deriv API token is required before switching accounts.")
+        if not target_app_id:
+            raise ValueError("Deriv App ID is required before switching accounts.")
+
+        previous_type = self.client.account_type
+        previous_app_id = self.client.app_id
+        previous_token = self.client._auth_token or self.config.api_token
+        previous_authorized = self.client.authorized
+
+        if previous_type == target and previous_app_id == target_app_id and self.client.authorized:
+            balance = await self.client.get_balance()
+            await self._on_balance(balance)
+            return self.client.account_info
+
+        try:
+            await self.client.disconnect()
+            self.client.app_id = target_app_id
+            self.client.account_type = target
+            await self.client.authorize(token)
+            await self.client.subscribe_balance(self._on_balance)
+            balance = await self.client.get_balance()
+            await self._on_balance(balance)
+            account = dict(self.client.account_info)
+            actual_type = str(account.get("account_type", target)).lower()
+            if actual_type != target:
+                raise RuntimeError("Deriv authenticated a %s account instead of the requested %s account." % (actual_type, target))
+            self.add_log(
+                "success",
+                "ACCOUNT SWITCHED | account_type=%s | account_id=%s | balance=$%.2f" % (actual_type, account.get("account_id", "unknown"), self.account_balance or 0.0)
+            )
+            return account
+        except Exception:
+            try:
+                await self.client.disconnect()
+                self.client.app_id = previous_app_id
+                self.client.account_type = previous_type
+                if previous_authorized and previous_token:
+                    await self.client.authorize(previous_token)
+                    await self.client.subscribe_balance(self._on_balance)
+                    balance = await self.client.get_balance()
+                    await self._on_balance(balance)
+            except Exception as restore_error:
+                logger.error("Unable to restore previous Deriv account after switch failure: %s", restore_error)
+            raise
+
     def update_config(self, new_config: TradingConfig):
         mode = new_config.contract_type_mode.upper()
         if mode not in ("DIGITUNDER", "DIGITOVER", "BOTH"):
