@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from models import TradingConfig, BotStatus, ManualTradeRequest, LogMessage
+from models import TradingConfig, BotStatus, ManualTradeRequest, LogMessage, AccountSwitchRequest
 from trading_bot import TradingBot
 from deriv_client import DerivClient
 from runtime import ENGINE_BUILD, ENGINE_DESCRIPTION
@@ -160,11 +160,50 @@ async def get_digit_symbols():
 def get_config():
     return bot.config
 
+@app.post("/api/account/switch")
+async def switch_account(req: AccountSwitchRequest):
+    target = str(req.account_type).strip().lower()
+    if target not in ("demo", "real"):
+        raise HTTPException(status_code=400, detail="Account type must be either 'demo' or 'real'.")
+    if target == "real" and not req.confirm_real_account:
+        raise HTTPException(
+            status_code=400,
+            detail="Explicit confirmation is required before switching to the real-money account."
+        )
+    if bot.is_running:
+        raise HTTPException(
+            status_code=409,
+            detail="Stop the bot before switching trading accounts. The authenticated trading socket cannot be changed while the bot is running."
+        )
+    try:
+        account = await bot.switch_account(target)
+        bot.config.account_type = target
+        persist_config(bot.config)
+        if bot.status_broadcast_callback:
+            await bot.status_broadcast_callback("status", bot.get_status().dict())
+        return {
+            "status": "success",
+            "account_type": target,
+            "account_id": account.get("account_id"),
+            "balance": bot.account_balance,
+            "equity": bot.account_equity,
+            "currency": account.get("currency", bot.config.currency)
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Account switch failed: {exc}")
+
+
 @app.post("/api/config", response_model=TradingConfig)
 async def update_config(config: TradingConfig):
-    # Pydantic validates the numeric ranges; normalize the contract mode once
-    # and persist the canonical configuration that the bot actually receives.
+    # Account selection is an authenticated-session operation, not just a
+    # UI preference. Force callers through /api/account/switch so the existing
+    # WebSocket cannot remain connected to the previous account.
     config = _normalized_config(config)
+    if config.account_type != bot.config.account_type:
+        raise HTTPException(
+            status_code=409,
+            detail="Account type changes must use the account switch operation so the Deriv session is re-authenticated."
+        )
     bot.update_config(config)
     persist_config(bot.config)
     return bot.config
