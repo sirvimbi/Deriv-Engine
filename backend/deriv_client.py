@@ -473,18 +473,18 @@ class DerivClient:
         max_amount: Optional[float] = None
     ) -> Dict[str, Any]:
         """
-        Buy a contract using a current Deriv proposal.
+        Buy a contract from a live proposal.
 
-        When target_profit is supplied, quote the requested stake first, derive
-        the current proposal profit rate, then resize the stake so the winning
-        contract targets the requested recovery profit. The final proposal is
-        always refreshed at the calculated stake before purchase.
+        For loss-cycle recovery, target_profit is a minimum desired winning
+        profit. Deriv can change payout between proposal requests, so the
+        sizing loop re-quotes after resizing and only buys from the final live
+        proposal. This avoids using an obsolete payout percentage.
         """
-        normalized_amount = Decimal(str(amount)).quantize(
+        requested_amount = Decimal(str(amount)).quantize(
             Decimal("0.01"),
             rounding=ROUND_HALF_UP
         )
-        if normalized_amount < Decimal("0.01"):
+        if requested_amount < Decimal("0.01"):
             raise ValueError("Trade amount must be at least 0.01.")
 
         target_profit_decimal = None
@@ -494,19 +494,22 @@ class DerivClient:
                 rounding=ROUND_HALF_UP
             )
 
-        proposal_params: Dict[str, Any] = {
-            "proposal": 1,
-            "amount": float(normalized_amount),
-            "basis": "stake",
-            "contract_type": contract_type,
-            "currency": currency,
-            "duration": int(duration),
-            "duration_unit": duration_unit,
-            "underlying_symbol": symbol
-        }
-        if barrier is not None:
-            proposal_params["barrier"] = str(barrier)
+        def build_proposal(amount_decimal: Decimal) -> Dict[str, Any]:
+            params: Dict[str, Any] = {
+                "proposal": 1,
+                "amount": float(amount_decimal),
+                "basis": "stake",
+                "contract_type": contract_type,
+                "currency": currency,
+                "duration": int(duration),
+                "duration_unit": duration_unit,
+                "underlying_symbol": symbol
+            }
+            if barrier is not None:
+                params["barrier"] = str(barrier)
+            return params
 
+        proposal_params = build_proposal(requested_amount)
         proposal_response = await self.send_request(proposal_params)
         if "error" in proposal_response:
             raise Exception(
@@ -515,32 +518,31 @@ class DerivClient:
 
         proposal = proposal_response.get("proposal") or {}
         proposal_id = proposal.get("id")
-        if not proposal_id:
-            raise Exception("Deriv returned a proposal without a proposal ID.")
-
         ask_price_raw = proposal.get("ask_price")
-        if ask_price_raw is None:
-            raise Exception("Deriv proposal did not return an ask_price.")
+        if not proposal_id or ask_price_raw is None:
+            raise Exception("Deriv returned an incomplete contract proposal.")
 
-        ask_price_decimal = Decimal(str(ask_price_raw))
-        if ask_price_decimal <= 0:
-            raise Exception("Deriv returned an invalid proposal ask_price.")
+        normalized_amount = requested_amount
 
-        # Deriv exposes payout on proposals. For stake-basis contracts the
-        # expected winning profit is payout - ask_price, so use that live quote
-        # rather than a hard-coded payout percentage.
-        payout_decimal = None
-        if target_profit_decimal is not None and proposal.get("payout") is not None:
-            try:
-                payout_decimal = Decimal(str(proposal.get("payout")))
-            except (TypeError, ValueError, ArithmeticError):
-                payout_decimal = None
+        if target_profit_decimal is not None:
+            for _ in range(3):
+                try:
+                    ask_price_decimal = Decimal(str(ask_price_raw))
+                    payout_raw = proposal.get("payout")
+                    if payout_raw is None:
+                        break
+                    payout_decimal = Decimal(str(payout_raw))
+                    quoted_profit = payout_decimal - ask_price_decimal
+                    profit_rate = quoted_profit / ask_price_decimal if ask_price_decimal > 0 else Decimal("0")
+                except (TypeError, ValueError, ArithmeticError):
+                    break
 
-        if target_profit_decimal is not None and payout_decimal is not None:
-            quoted_profit = payout_decimal - ask_price_decimal
-            profit_rate = quoted_profit / ask_price_decimal if ask_price_decimal > 0 else Decimal("0")
+                if profit_rate <= 0:
+                    logger.warning(
+                        "Recovery target sizing skipped: proposal payout did not exceed ask_price."
+                    )
+                    break
 
-            if profit_rate > 0:
                 calculated_amount = (target_profit_decimal / profit_rate).quantize(
                     Decimal("0.01"),
                     rounding=ROUND_UP
@@ -548,36 +550,36 @@ class DerivClient:
                 if max_amount is not None:
                     calculated_amount = min(
                         calculated_amount,
-                        Decimal(str(max_amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                        Decimal(str(max_amount)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
                     )
-                normalized_amount = max(Decimal("0.01"), calculated_amount)
+                calculated_amount = max(Decimal("0.01"), calculated_amount)
 
-                if normalized_amount != Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP):
-                    logger.info(
-                        "Recovery target sizing | target_profit=%s | quoted_profit=%s | "
-                        "profit_rate=%.6f | calculated_stake=%s",
-                        f"{target_profit_decimal:.2f}",
-                        f"{quoted_profit:.2f}",
-                        float(profit_rate),
-                        f"{normalized_amount:.2f}"
-                    )
-                    proposal_params["amount"] = float(normalized_amount)
-                    proposal_response = await self.send_request(proposal_params)
-                    if "error" in proposal_response:
-                        raise Exception(
-                            proposal_response["error"].get("message", "Recovery proposal failed")
-                        )
-                    proposal = proposal_response.get("proposal") or {}
-                    proposal_id = proposal.get("id")
-                    ask_price_raw = proposal.get("ask_price")
-                    if not proposal_id or ask_price_raw is None:
-                        raise Exception("Deriv returned an incomplete recovery proposal.")
-            else:
-                logger.warning(
-                    "Recovery target sizing skipped: proposal payout did not exceed ask_price."
+                logger.info(
+                    "Recovery proposal quote | target_profit=%s | ask_price=%s | payout=%s | "
+                    "profit_rate=%.6f | required_stake=%s",
+                    f"{target_profit_decimal:.2f}",
+                    str(ask_price_raw),
+                    str(proposal.get("payout")),
+                    float(profit_rate),
+                    f"{calculated_amount:.2f}"
                 )
 
-        # Check balance only after the final recovery stake has been calculated.
+                if calculated_amount == normalized_amount:
+                    break
+
+                normalized_amount = calculated_amount
+                proposal_params = build_proposal(normalized_amount)
+                proposal_response = await self.send_request(proposal_params)
+                if "error" in proposal_response:
+                    raise Exception(
+                        proposal_response["error"].get("message", "Recovery proposal failed")
+                    )
+                proposal = proposal_response.get("proposal") or {}
+                proposal_id = proposal.get("id")
+                ask_price_raw = proposal.get("ask_price")
+                if not proposal_id or ask_price_raw is None:
+                    raise Exception("Deriv returned an incomplete recovery proposal.")
+
         if self.authorized:
             balance_response = await self.get_balance()
             available_balance = Decimal(str(balance_response.get("balance", "0")))
@@ -595,7 +597,6 @@ class DerivClient:
             raise Exception("Deriv returned an invalid proposal ask_price.")
 
         buy_price_text = f"{buy_price_decimal:.2f}"
-        buy_price = float(buy_price_text)
 
         logger.info(
             "Buying proposal %s | stake=%s | ask_price=%s | buy_price=%s%s",
@@ -607,7 +608,7 @@ class DerivClient:
         )
 
         response = await self.send_request(
-            {"buy": str(proposal_id), "price": buy_price},
+            {"buy": str(proposal_id), "price": float(buy_price_decimal)},
             exact_numeric_fields={"price": buy_price_text}
         )
         if "error" in response:
