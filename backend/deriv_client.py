@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import ssl
 import certifi
 import requests
@@ -460,6 +461,47 @@ class DerivClient:
         self.tick_callbacks.clear()
         return response
 
+    async def _request_proposal_with_minimum_retry(
+        self,
+        proposal_params: Dict[str, Any],
+        requested_amount: Decimal,
+    ) -> tuple[Dict[str, Any], Decimal]:
+        """Request a proposal and recover cleanly from Deriv minimum-stake errors.
+
+        Loss-cycle recovery can legitimately calculate a stake below the market's
+        minimum when the outstanding loss is spread over many target wins. Deriv
+        rejects that proposal before purchase. If the response tells us the
+        required minimum, retry once at that exact minimum and return the effective
+        amount so the caller never buys using a stale pre-retry amount.
+        """
+        response = await self.send_request(proposal_params)
+        if "error" not in response:
+            return response, requested_amount
+
+        error = response.get("error") or {}
+        message = str(error.get("message", ""))
+        match = re.search(
+            r"(?:at least|minimum(?:\\s+stake)?(?:\\s+amount)?(?:\\s+is)?)\\s*\\$?\\s*(\\d+(?:\\.\\d+)?)",
+            message,
+            re.IGNORECASE,
+        )
+        if not match:
+            return response, requested_amount
+
+        minimum_amount = Decimal(match.group(1)).quantize(Decimal("0.01"), rounding=ROUND_UP)
+        if requested_amount >= minimum_amount:
+            return response, requested_amount
+
+        retry_params = dict(proposal_params)
+        retry_params["amount"] = float(minimum_amount)
+        logger.warning(
+            "Deriv minimum stake adjusted | requested=%s | minimum=%s | retrying proposal",
+            f"{requested_amount:.2f}",
+            f"{minimum_amount:.2f}",
+        )
+        retry_response = await self.send_request(retry_params)
+        return retry_response, minimum_amount
+
     async def buy_contract(
         self,
         symbol: str,
@@ -510,7 +552,9 @@ class DerivClient:
             return params
 
         proposal_params = build_proposal(requested_amount)
-        proposal_response = await self.send_request(proposal_params)
+        proposal_response, normalized_amount = await self._request_proposal_with_minimum_retry(
+            proposal_params, requested_amount
+        )
         if "error" in proposal_response:
             raise Exception(
                 proposal_response["error"].get("message", "Contract proposal failed")
@@ -521,8 +565,6 @@ class DerivClient:
         ask_price_raw = proposal.get("ask_price")
         if not proposal_id or ask_price_raw is None:
             raise Exception("Deriv returned an incomplete contract proposal.")
-
-        normalized_amount = requested_amount
 
         if target_profit_decimal is not None:
             for _ in range(3):
@@ -569,7 +611,9 @@ class DerivClient:
 
                 normalized_amount = calculated_amount
                 proposal_params = build_proposal(normalized_amount)
-                proposal_response = await self.send_request(proposal_params)
+                proposal_response, normalized_amount = await self._request_proposal_with_minimum_retry(
+                    proposal_params, normalized_amount
+                )
                 if "error" in proposal_response:
                     raise Exception(
                         proposal_response["error"].get("message", "Recovery proposal failed")
