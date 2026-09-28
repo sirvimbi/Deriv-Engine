@@ -318,6 +318,8 @@ class DerivClient:
                     pass
             self.ws = None
             self.authorized = False
+            # Preserve the bearer token. A closed authenticated socket must
+            # be replaced with a fresh OTP, not downgraded to public access.
             for future in list(self.pending_requests.values()):
                 if not future.done():
                     future.set_exception(ConnectionError(f"Deriv WebSocket disconnected: {e}"))
@@ -329,6 +331,7 @@ class DerivClient:
             logger.warning("Deriv WebSocket listener ended because the connection closed.")
             self.ws = None
             self.authorized = False
+            # Preserve the bearer token for fresh OTP recovery.
             for future in list(self.pending_requests.values()):
                 if not future.done():
                     future.set_exception(ConnectionError("Deriv WebSocket connection closed."))
