@@ -31,6 +31,11 @@ class DerivClient:
         self.authorized = False
         self.account_info: Dict[str, Any] = {}
         self._auth_token = ""
+        # Authentication is a shared resource: the bot, balance endpoint,
+        # background equity loop, and manual trading all use this client.
+        # Serialize OTP creation/replacement so concurrent callers cannot
+        # invalidate each other's one-time WebSocket sessions.
+        self._auth_lock = asyncio.Lock()
 
     def _get_req_id(self) -> int:
         req_id = self.req_id_counter
@@ -163,10 +168,15 @@ class DerivClient:
         if self.ws and self.ws.state is State.OPEN:
             return
 
-        target = url or self.ws_url
-        if not target:
-            target = self.PUBLIC_WS_URL
+        # An authenticated OTP URL is single-use. Never reconnect an
+        # authenticated client to an old OTP or to the public socket.
+        # If the authenticated socket disappeared, authorize() obtains a
+        # fresh OTP before another account-scoped request is sent.
+        if url is None and self._auth_token:
+            await self.authorize(self._auth_token)
+            return
 
+        target = url or self.PUBLIC_WS_URL
         try:
             logger.info(f"Attempting connection to Deriv WS at {target}...")
             await self._connect_url(target)
@@ -324,28 +334,45 @@ class DerivClient:
                     future.set_exception(ConnectionError("Deriv WebSocket connection closed."))
 
     async def authorize(self, token: str) -> Dict[str, Any]:
-        """Authenticate by REST Bearer token -> account lookup -> one-time WebSocket OTP."""
+        """Authenticate with a serialized REST Bearer -> OTP -> WebSocket flow."""
         normalized_token = self._normalize_token(token)
         if not normalized_token:
             raise ValueError("Deriv API token is required.")
 
-        try:
-            auth = await self._get_authenticated_ws_url(normalized_token)
-            if self.ws:
-                await self.disconnect()
+        async with self._auth_lock:
+            # Authentication is idempotent for the shared client. This is
+            # important because /api/account/balance, the equity loop, bot
+            # startup, and manual trading can all request authentication at
+            # nearly the same time. Do not mint a second OTP when the current
+            # authenticated socket is already usable.
+            if (
+                self.authorized
+                and self._auth_token == normalized_token
+                and self.ws
+                and self.ws.state is State.OPEN
+            ):
+                return {"authorize": self.account_info}
 
-            await self._connect_url(auth["url"])
-            self._auth_token = normalized_token
-            self.authorized = True
-            self.account_info = auth["account"]
-            logger.info(
-                f"Authenticated Deriv WebSocket for {self.account_info.get('account_id', 'unknown')} "
-                f"({self.account_info.get('account_type', self.account_type)})."
-            )
-            return {"authorize": self.account_info}
-        except Exception:
-            self.authorized = False
-            raise
+            try:
+                auth = await self._get_authenticated_ws_url(normalized_token)
+
+                # Replace an old socket only after the fresh OTP has been
+                # obtained. This minimizes the unauthenticated window.
+                if self.ws:
+                    await self.disconnect()
+
+                await self._connect_url(auth["url"])
+                self._auth_token = normalized_token
+                self.authorized = True
+                self.account_info = auth["account"]
+                logger.info(
+                    f"Authenticated Deriv WebSocket for {self.account_info.get('account_id', 'unknown')} "
+                    f"({self.account_info.get('account_type', self.account_type)})."
+                )
+                return {"authorize": self.account_info}
+            except Exception:
+                self.authorized = False
+                raise
 
     async def subscribe_balance(self, callback: Callable):
         """Subscribe to Deriv balance updates on the authenticated WebSocket."""
