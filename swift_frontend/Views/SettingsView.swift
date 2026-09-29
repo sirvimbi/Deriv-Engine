@@ -167,8 +167,30 @@ public struct SettingsView: View {
             dropdownRow("Max Stake Limit ($)") {
                 DecimalAmountDropdown("Max Stake Limit", value: $viewModel.config.max_stake, range: 0...1000)
             }
-            dropdownRow("Martingale Multiplier") {
-                DoubleDropdown("Martingale Multiplier", value: $viewModel.config.martingale, range: 0...50, step: 0.1)
+            dropdownRow("Martingale") {
+                if viewModel.config.martingale <= 0 {
+                    Label("DISABLED", systemImage: "slash.circle.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(Color.secondary.opacity(0.12))
+                        )
+                } else {
+                    HStack(spacing: 10) {
+                        DoubleDropdown("Martingale Multiplier", value: $viewModel.config.martingale, range: 0...50, step: 0.1)
+                        Text(String(format: "%.1fx", viewModel.config.martingale))
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if viewModel.config.martingale <= 0 {
+                Text("Martingale: DISABLED — losses will not multiply the stake.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
