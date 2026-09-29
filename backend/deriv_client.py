@@ -624,15 +624,10 @@ class DerivClient:
                 if not proposal_id or ask_price_raw is None:
                     raise Exception("Deriv returned an incomplete recovery proposal.")
 
-        if self.authorized:
-            balance_response = await self.get_balance()
-            available_balance = Decimal(str(balance_response.get("balance", "0")))
-            if available_balance < normalized_amount:
-                raise ValueError(
-                    f"Insufficient Deriv balance: available={available_balance:.2f} "
-                    f"{currency}, required={normalized_amount:.2f} {currency}."
-                )
-
+        # Do not call balance here. The authenticated client subscribes to
+        # balance updates once, and every extra balance request consumes the
+        # account's much smaller balance/statement rate-limit budget. Deriv's
+        # buy response is authoritative for insufficient funds.
         buy_price_decimal = Decimal(str(ask_price_raw)).quantize(
             Decimal("0.01"),
             rounding=ROUND_UP
