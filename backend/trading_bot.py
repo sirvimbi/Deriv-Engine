@@ -178,7 +178,7 @@ class TradingBot:
             self.add_log(
                 "info",
                 f"MARTINGALE DISABLED | no multiplier applied after loss; "
-                f"next recovery stake remains at base ${this.stake:.2f}."
+                f"next recovery stake remains at base ${self.stake:.2f}."
             )
             return
 
@@ -188,7 +188,7 @@ class TradingBot:
         )
         self.add_log(
             "info",
-            f"MARTINGALE APPLIED | multiplier=x{this.config.martingale:.2f} | "
+            f"MARTINGALE APPLIED | multiplier=x{self.config.martingale:.2f} | "
             f"next stake=${this.stake:.2f}."
         )
 
