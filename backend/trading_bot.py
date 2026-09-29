@@ -465,13 +465,15 @@ class TradingBot:
         elif not self.in_recovery_cycle:
             self.active_contract_type = contract_type
 
-        trade_contract_type = contract_type
+        trade_contract_type = contract_type.upper()
         if self.in_recovery_cycle:
-            trade_prediction = (self.config.loss_predict_digit if self.recovery_phase == 1 else self.config.recovery_win_predict_digit)
-            self.predict = trade_prediction
+            trade_prediction = None if trade_contract_type in ("CALL", "PUT") else (self.config.loss_predict_digit if self.recovery_phase == 1 else self.config.recovery_win_predict_digit)
+            if trade_prediction is not None:
+                self.predict = trade_prediction
         else:
-            trade_prediction = int(self.config.win_predict_digit)
-            self.predict = trade_prediction
+            trade_prediction = None if trade_contract_type in ("CALL", "PUT") else int(self.config.win_predict_digit)
+            if trade_prediction is not None:
+                self.predict = trade_prediction
         trade_stake = float(self.stake)
         recovery_target_profit: Optional[float] = None
         if (
@@ -489,23 +491,22 @@ class TradingBot:
                 f"target_profit=${recovery_target_profit:.2f}"
             )
 
-        # The configuration engine intentionally permits the full digit domain
-        # 0-9. Validate the barrier only after the concrete contract type is
-        # known, because DIGITOVER and DIGITUNDER have different valid edges.
-        try:
-            trade_prediction = validate_digit_barrier(trade_contract_type, trade_prediction)
-        except ValueError as validation_error:
-            self.add_log(
-                "error",
-                f"INVALID DIGIT BARRIER | type={trade_contract_type} | barrier={trade_prediction} | "
-                f"{validation_error}. Trade skipped before Deriv proposal."
-            )
-            self.is_trade_in_progress = False
-            if self.in_recovery_cycle:
-                await self.stop("Invalid recovery digit barrier for locked contract")
-            else:
-                self.active_contract_type = None
-            return
+        # CALL/PUT (Rise/Fall) do not use a digit barrier.
+        if trade_contract_type not in ("CALL", "PUT"):
+            try:
+                trade_prediction = validate_digit_barrier(trade_contract_type, int(trade_prediction))
+            except (ValueError, TypeError) as validation_error:
+                self.add_log(
+                    "error",
+                    f"INVALID DIGIT BARRIER | type={trade_contract_type} | barrier={trade_prediction} | "
+                    f"{validation_error}. Trade skipped before Deriv proposal."
+                )
+                self.is_trade_in_progress = False
+                if self.in_recovery_cycle:
+                    await self.stop("Invalid recovery digit barrier for locked contract")
+                else:
+                    self.active_contract_type = None
+                return
 
         self.add_log(
             "info",
