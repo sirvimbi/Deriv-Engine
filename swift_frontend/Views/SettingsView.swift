@@ -321,7 +321,9 @@ private extension SettingsView {
             "",
             "Base Stake: $\(c.base_stake)",
             "Max Stake Limit: $\(c.max_stake)",
-            "Martingale Multiplier: \(c.martingale)x",
+            c.martingale <= 0
+                ? "Martingale: DISABLED"
+                : String(format: "Martingale: %.1fx", c.martingale),
             "",
             "Take Profit: $\(c.take_profit)",
             "Max Runs / Trades: \(c.max_runs)",
