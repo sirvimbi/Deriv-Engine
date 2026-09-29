@@ -425,6 +425,14 @@ class TradingBot:
             trade_prediction = int(self.config.win_predict_digit)
             self.predict = trade_prediction
         trade_stake = float(self.stake)
+        if trade_stake <= 0:
+            self.is_trade_in_progress = False
+            self.add_log(
+                "error",
+                f"Invalid trade stake ${trade_stake:.2f}. The configured Martingale multiplier or recovery calculation produced a non-positive stake. Stopping bot to prevent repeated invalid trade requests."
+            )
+            await self.stop("Invalid non-positive trade stake")
+            return
         recovery_target_profit: Optional[float] = None
         if (
             self.in_recovery_cycle
