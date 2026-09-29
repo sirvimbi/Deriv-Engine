@@ -1,6 +1,6 @@
 import asyncio
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from models import TradingConfig
 from trading_bot import TradingBot
@@ -60,7 +60,7 @@ class RiseFallTradingTests(unittest.IsolatedAsyncioTestCase):
             "buy_price": "1.00",
         }
 
-        with patch.object(bot, "_refresh_balance_after_settlement", new=asyncio.coroutine(lambda: None), create=True):
+        with patch.object(bot, "_refresh_balance_after_settlement", new=AsyncMock()):
             with patch.object(bot, "status_broadcast_callback", None):
                 await bot._handle_contract_finished(
                     poc,
