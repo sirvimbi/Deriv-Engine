@@ -54,7 +54,7 @@ class TradingConfig(BaseModel):
     symbol: str = Field(default="R_100", description="Market Symbol (e.g. R_100)")
     base_stake: float = Field(default=30.0, ge=0, le=100, description="Base Stake Amount (0-100)")
     max_stake: float = Field(default=1000.0, ge=0, le=1000, description="Maximum Stake Limit (0-1000)")
-    martingale: float = Field(default=2.0, ge=0, le=50, description="Martingale Multiplier on Loss (0-50)")
+    martingale: float = Field(default=2.0, ge=0, le=50, description="Martingale Multiplier on Loss (0-50); 0 disables Martingale and leaves recovery stake at the base amount.")
     take_profit: float = Field(default=500.0, ge=0, le=10000, description="Take Profit Target (0-10000)")
     stop_loss: float = Field(default=500.0, description="Stop Loss Limit")
     max_runs: int = Field(default=250, ge=0, le=500, description="Maximum Number of Runs/Trades (0-500)")
@@ -67,7 +67,7 @@ class TradingConfig(BaseModel):
     duration: int = Field(default=1, ge=0, le=50, description="Trade Duration in ticks (0-50)")
     duration_unit: str = Field(default="t", description="Duration Unit ('t' for ticks, 's' for seconds)")
     currency: str = Field(default="USD", description="Currency Code")
-    recovery_wins_required: int = Field(default=2, ge=0, le=50, description="Recovery Wins Required (0-50)")
+    recovery_wins_required: int = Field(default=2, ge=0, le=50, description="Recovery Wins Required (0-50); 0 disables win-count recovery.")
     loss_cycle_target: int = Field(
         default=0,
         ge=0,

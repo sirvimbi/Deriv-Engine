@@ -167,6 +167,31 @@ class TradingBot:
             self.time_duration = new_config.duration
         self.add_log("info", "Bot strategy configuration updated.")
 
+    def _apply_martingale_after_loss(self):
+        """Apply Martingale only when its multiplier is explicitly enabled.
+
+        A Martingale value of 0 means disabled. It must never produce a
+        zero-dollar stake or alter the next stake.
+        """
+        if self.config.martingale <= 0:
+            self.stake = self.config.base_stake
+            self.add_log(
+                "info",
+                f"MARTINGALE DISABLED | no multiplier applied after loss; "
+                f"next recovery stake remains at base ${self.stake:.2f}."
+            )
+            return
+
+        self.stake = min(
+            self.stake * self.config.martingale,
+            self.config.max_stake
+        )
+        self.add_log(
+            "info",
+            f"MARTINGALE APPLIED | multiplier=x{self.config.martingale:.2f} | "
+            f"next stake=${self.stake:.2f}."
+        )
+
     async def start(self):
         if self.is_running:
             return
@@ -236,9 +261,11 @@ class TradingBot:
             f"Under trigger={self.config.under_trigger_digit} | Over trigger={self.config.over_trigger_digit} | "
             f"Win prediction={self.config.win_predict_digit} | Loss prediction={self.config.loss_predict_digit} | "
             f"Recovery prediction={self.config.recovery_win_predict_digit} | "
-            f"Recovery target={max(1, self.config.recovery_wins_required)} wins | "
+            f"Recovery target={self.config.recovery_wins_required} wins "
+            f"({'enabled' if self.config.recovery_wins_required > 0 else 'disabled'}) | "
             f"Loss cycle target={self.config.loss_cycle_target} "
-            f"({'enabled' if self.config.loss_cycle_target > 0 else 'disabled'})"
+            f"({'enabled' if self.config.loss_cycle_target > 0 else 'disabled'}) | "
+            f"Martingale={'enabled' if self.config.martingale > 0 else 'disabled'}"
         )
         if self.status_broadcast_callback:
             try:
@@ -764,7 +791,7 @@ class TradingBot:
                         )
                 else:
                     self.recovery_win_count += 1
-                    target = max(1, self.config.recovery_wins_required)
+                    target = self.config.recovery_wins_required
                     if self.recovery_win_count >= target:
                         self.stake = self.config.base_stake
                         self.recovery_win_count = 0
@@ -812,15 +839,17 @@ class TradingBot:
             self.loss_streak += 1
             self.add_log("error", f"Trade LOST! -${abs(profit):.2f} | Loss Streak: {self.loss_streak} | Total Profit: ${self.total_profit:.2f}")
 
-            # Optional loss-cycle mode keeps a financial ledger of all losing stakes.
-            # Recovery losses are added to the same ledger and do not consume a
-            # recovery-win slot.
+            # Recovery is entirely opt-in:
+            #   recovery_wins_required=0 -> win-count recovery disabled
+            #   loss_cycle_target=0       -> financial loss-cycle disabled
+            # If both are zero, a loss ends recovery immediately and the next
+            # normal trade always uses the configured base stake.
             if self.config.loss_cycle_target > 0:
                 self.recovery_loss_stake += max(0.0, trade_stake)
                 if not self.in_recovery_cycle:
                     self.recovery_win_count = 0
 
-                self.stake = min(self.stake * self.config.martingale, self.config.max_stake)
+                self._apply_martingale_after_loss()
                 self.in_recovery_cycle = True
                 self.recovery_phase = 1
                 self.active_contract_type = trade_contract_type
@@ -839,7 +868,35 @@ class TradingBot:
                     f"next_target_profit=${target_profit:.2f} | "
                     f"contract={self.active_contract_type}.",
                 )
-            elif self.loss_streak >= self.config.max_loss_streak:
+            elif self.config.recovery_wins_required > 0:
+                if self.loss_streak >= self.config.max_loss_streak:
+                    self.stake = self.config.base_stake
+                    self.recovery_win_count = 0
+                    self.recovery_loss_stake = 0.0
+                    self.in_recovery_cycle = False
+                    self.recovery_phase = 0
+                    self.recovery_prediction_active = False
+                    self.active_contract_type = None
+                    self.predict = self.config.win_predict_digit
+                    self.time_duration = self.config.duration
+                    self.loss_streak = 0
+                    self.add_log("warn", f"Max loss streak threshold ({self.config.max_loss_streak}) hit! Resetting stake to base: ${self.stake:.2f}")
+                else:
+                    self._apply_martingale_after_loss()
+                    self.recovery_win_count = 0
+                    self.recovery_loss_stake = 0.0
+                    self.in_recovery_cycle = True
+                    self.recovery_phase = 1
+                    self.active_contract_type = trade_contract_type
+                    self.recovery_prediction_active = False
+                    self.predict = self.config.loss_predict_digit
+                    self.time_duration = self.config.duration
+                    self.add_log(
+                        "info",
+                        f"Recovery contract LOCKED to {self.active_contract_type}; "
+                        f"next recovery prediction={self.predict}; recovery wins reset to 0.",
+                    )
+            else:
                 self.stake = self.config.base_stake
                 self.recovery_win_count = 0
                 self.recovery_loss_stake = 0.0
@@ -849,23 +906,10 @@ class TradingBot:
                 self.active_contract_type = None
                 self.predict = self.config.win_predict_digit
                 self.time_duration = self.config.duration
-                self.loss_streak = 0
-                self.add_log("warn", f"Max loss streak threshold ({self.config.max_loss_streak}) hit! Resetting stake to base: ${self.stake:.2f}")
-            else:
-                self.stake = min(self.stake * self.config.martingale, self.config.max_stake)
-                self.recovery_win_count = 0
-                self.recovery_loss_stake = 0.0
-                self.in_recovery_cycle = True
-                self.recovery_phase = 1
-                self.active_contract_type = trade_contract_type
-                self.recovery_prediction_active = False
-                self.predict = self.config.loss_predict_digit
-                self.time_duration = self.config.duration
                 self.add_log(
                     "info",
-                    f"Next stake increased to ${self.stake:.2f} (Martingale x{self.config.martingale}). "
-                    f"Recovery contract LOCKED to {self.active_contract_type}; "
-                    f"next recovery prediction={self.predict}; recovery wins reset to 0.",
+                    f"RECOVERY DISABLED | recovery_wins_required=0 and loss_cycle_target=0; "
+                    f"next stake reset to base ${self.stake:.2f}. No recovery trade will be scheduled."
                 )
         # Start a fresh five-second cooldown after every loss that leaves the
         # bot in recovery. This applies to the initial loss and to additional
