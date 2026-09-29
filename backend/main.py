@@ -55,6 +55,15 @@ def load_persisted_config() -> TradingConfig:
         logger.warning("Unable to load persisted trading config: %s", exc)
         return _normalized_config(default_config)
 
+def _validate_trade_config(config: TradingConfig):
+    """Reject settings that can produce an invalid Deriv trade request."""
+    if float(config.martingale) < 1.0:
+        raise HTTPException(
+            status_code=422,
+            detail="Martingale multiplier must be at least 1.0. A value of 0.0 produces a zero recovery stake."
+        )
+
+
 def persist_config(config: TradingConfig):
     normalized = _normalized_config(config)
     tmp = CONFIG_FILE.with_suffix(".tmp")
@@ -227,12 +236,14 @@ async def update_config(config: TradingConfig):
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"Deriv session update failed: {exc}")
 
+    _validate_trade_config(config)
     bot.update_config(config)
     persist_config(bot.config)
     return bot.config
 
 @app.post("/api/bot/start")
 async def start_bot():
+    _validate_trade_config(bot.config)
     if bot.is_running:
         return {"status": "already_running", "message": "Bot is already running"}
     try:
