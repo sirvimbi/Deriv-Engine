@@ -84,30 +84,15 @@ bot.set_broadcast_callback(broadcast_ws_event)
 
 
 async def equity_broadcast_loop():
-    """Keep account balance/equity live using the bot's authenticated WS.
+    """Keep dashboard balance live from the authenticated balance subscription.
 
-    Deriv's balance endpoint is the authoritative account value and supports
-    real-time subscriptions. Reusing the bot's authenticated client avoids
-    creating a new OTP/WebSocket session every five seconds, which can race
-    with trading and make the balance path unreliable.
+    Deriv's balance endpoint has a much smaller rate-limit budget than trading
+    requests. The authenticated client subscribes once with subscribe=1;
+    subsequent balance updates arrive through the WebSocket, so polling every
+    few seconds is unnecessary and can exhaust the balance quota.
     """
     while True:
-        try:
-            # Do not authenticate from the background refresh loop. The bot,
-            # dashboard balance endpoint, and manual trade endpoint all own
-            # authentication and can race if this loop opens a second OTP
-            # session. Once an authenticated client exists, refresh it here.
-            if bot.client.authorized:
-                active_type = str(bot.client.account_info.get("account_type", "")).lower()
-                configured_type = str(bot.config.account_type).lower()
-                if active_type and active_type != configured_type:
-                    logger.error("Equity refresh blocked: authenticated account=%s but configured account=%s.", active_type, configured_type)
-                else:
-                    balance = await bot.client.get_balance()
-                    await bot._on_balance(balance)
-        except Exception as e:
-            logger.warning(f"Equity refresh skipped: {e}")
-        await asyncio.sleep(3)
+        await asyncio.sleep(60)
 
 
 @app.on_event("startup")
@@ -273,11 +258,9 @@ async def _monitor_manual_contract(contract_id: int):
     async def on_update(poc: Dict[str, Any]):
         if poc.get("is_sold"):
             try:
-                settled = await bot.client.get_balance()
-                await bot._on_balance(settled)
+                # The balance subscription receives the post-settlement balance.
+                # Avoid a second balance request here because balance is rate-limited.
                 await broadcast_ws_event("history_refresh", {"reason": "manual_trade_settled", "contract_id": contract_id})
-            except Exception as exc:
-                logger.warning("Manual trade equity refresh failed: %s", exc)
             finally:
                 bot.client.unsubscribe_contract(contract_id)
                 done.set()
@@ -327,13 +310,8 @@ async def place_manual_trade(req: ManualTradeRequest):
             currency=req.currency
         )
 
-        # Refresh immediately after purchase (stake has been charged), then
-        # monitor settlement so the final win/loss balance is also displayed.
-        try:
-            await bot._on_balance(await bot.client.get_balance())
-        except Exception as balance_error:
-            logger.warning("Manual trade immediate equity refresh failed: %s", balance_error)
-
+        # Balance/equity is updated by the authenticated balance subscription.
+        # Do not issue another balance request after every manual purchase.
         contract_id = buy_res.get("contract_id")
         if contract_id:
             asyncio.create_task(_monitor_manual_contract(int(contract_id)))
