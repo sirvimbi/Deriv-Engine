@@ -36,7 +36,7 @@ CONFIG_FILE = Path(__file__).resolve().parent / "trading_config.json"
 def _normalized_config(config: TradingConfig) -> TradingConfig:
     """Normalize persisted settings to the same canonical values used by the UI."""
     mode = str(config.contract_type_mode).upper()
-    if mode not in ("DIGITUNDER", "DIGITOVER", "BOTH"):
+    if mode not in ("DIGITUNDER", "DIGITOVER", "BOTH", "CALL", "PUT", "RISEFALL"):
         mode = "BOTH"
     data = config.dict()
     data["contract_type_mode"] = mode
