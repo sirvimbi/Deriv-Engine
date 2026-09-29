@@ -54,7 +54,7 @@ class TradingConfig(BaseModel):
     symbol: str = Field(default="R_100", description="Market Symbol (e.g. R_100)")
     base_stake: float = Field(default=30.0, ge=0, le=100, description="Base Stake Amount (0-100)")
     max_stake: float = Field(default=1000.0, ge=0, le=1000, description="Maximum Stake Limit (0-1000)")
-    martingale: float = Field(default=2.0, ge=1, le=50, description="Martingale Multiplier on Loss (1-50); values below 1 cannot produce a valid recovery stake")
+    martingale: float = Field(default=2.0, ge=0, le=50, description="Martingale Multiplier on Loss (0-50); 0 is rejected before trading because it produces an invalid zero stake")
     take_profit: float = Field(default=500.0, ge=0, le=10000, description="Take Profit Target (0-10000)")
     stop_loss: float = Field(default=500.0, description="Stop Loss Limit")
     max_runs: int = Field(default=250, ge=0, le=500, description="Maximum Number of Runs/Trades (0-500)")
