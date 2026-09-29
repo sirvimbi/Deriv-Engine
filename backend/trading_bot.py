@@ -189,7 +189,7 @@ class TradingBot:
         self.add_log(
             "info",
             f"MARTINGALE APPLIED | multiplier=x{self.config.martingale:.2f} | "
-            f"next stake=${this.stake:.2f}."
+            f"next stake=${self.stake:.2f}."
         )
 
     async def start(self):
