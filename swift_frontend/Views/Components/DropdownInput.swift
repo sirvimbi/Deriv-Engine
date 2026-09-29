@@ -172,25 +172,32 @@ public struct ContractModeDropdown: View {
             get: {
                 switch value.uppercased() {
                 case "DIGITUNDER": return 0
+                case "BOTH": return 1
                 case "DIGITOVER": return 2
+                case "CALL": return 3
+                case "PUT": return 4
+                case "RISEFALL": return 5
                 default: return 1
                 }
             },
             set: { index in
-                value = ["DIGITUNDER", "BOTH", "DIGITOVER"][min(max(index, 0), 2)]
+                value = ["DIGITUNDER", "BOTH", "DIGITOVER", "CALL", "PUT", "RISEFALL"][min(max(index, 0), 5)]
             }
         )
     }
 
     public var body: some View {
-        Picker("Allowed Contracts", selection: selection) {
-            Text("DigitUnder").tag(0)
-            Text("Both").tag(1)
-            Text("DigitOver").tag(2)
+        Picker("Trading Type", selection: selection) {
+            Text("Digit Under").tag(0)
+            Text("Digits — Both").tag(1)
+            Text("Digit Over").tag(2)
+            Text("Rise (CALL)").tag(3)
+            Text("Fall (PUT)").tag(4)
+            Text("Rise / Fall — Follow Market").tag(5)
         }
         .pickerStyle(.menu)
         .menuOrder(.fixed)
-        .frame(minWidth: 150, maxWidth: 220)
+        .frame(minWidth: 180, maxWidth: 260)
     }
 }
 
