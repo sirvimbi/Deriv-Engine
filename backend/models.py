@@ -74,7 +74,7 @@ class TradingConfig(BaseModel):
         le=20,
         description="Loss Cycle Target: 0 disables loss-amount recovery; 1-20 divides outstanding losses across recovery wins."
     )
-    contract_type_mode: str = Field(default="BOTH", description="Allowed digit contract types: DIGITUNDER, DIGITOVER, or BOTH")
+    contract_type_mode: str = Field(default="BOTH", description="Trading type: DIGITUNDER, DIGITOVER, BOTH, CALL (Rise), PUT (Fall), or RISEFALL (direction follows tick movement)")
     account_type: str = Field(default="demo", description="Deriv account type: demo or real")
 
 class AccountSwitchRequest(BaseModel):

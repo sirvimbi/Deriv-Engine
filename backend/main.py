@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from models import TradingConfig, BotStatus, ManualTradeRequest, LogMessage, AccountSwitchRequest
+from models import TradingConfig, BotStatus, ManualTradeRequest, LogMessage, AccountSwitchRequest, validate_digit_barrier
 from trading_bot import TradingBot
 from deriv_client import DerivClient
 from runtime import ENGINE_BUILD, ENGINE_DESCRIPTION
@@ -36,7 +36,7 @@ CONFIG_FILE = Path(__file__).resolve().parent / "trading_config.json"
 def _normalized_config(config: TradingConfig) -> TradingConfig:
     """Normalize persisted settings to the same canonical values used by the UI."""
     mode = str(config.contract_type_mode).upper()
-    if mode not in ("DIGITUNDER", "DIGITOVER", "BOTH"):
+    if mode not in ("DIGITUNDER", "DIGITOVER", "BOTH", "CALL", "PUT", "RISEFALL"):
         mode = "BOTH"
     data = config.dict()
     data["contract_type_mode"] = mode
@@ -296,6 +296,21 @@ async def _monitor_manual_contract(contract_id: int):
 @app.post("/api/trade/place")
 async def place_manual_trade(req: ManualTradeRequest):
     try:
+        contract_type = str(req.contract_type).upper()
+        supported_contracts = {"DIGITUNDER", "DIGITOVER", "DIGITMATCH", "DIGITDIFF", "CALL", "PUT"}
+        if contract_type not in supported_contracts:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unsupported contract type: {contract_type}. Supported types: {', '.join(sorted(supported_contracts))}."
+            )
+
+        barrier = None
+        if contract_type.startswith("DIGIT"):
+            try:
+                barrier = validate_digit_barrier(contract_type, req.prediction if req.prediction is not None else 0)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+
         # Manual trades use the same authenticated Deriv client as the bot so
         # their balance/equity updates are reflected in the dashboard.
         if not bot.client.authorized:
@@ -304,11 +319,11 @@ async def place_manual_trade(req: ManualTradeRequest):
 
         buy_res = await bot.client.buy_contract(
             symbol=req.symbol,
-            contract_type=req.contract_type,
+            contract_type=contract_type,
             amount=req.amount,
             duration=req.duration,
             duration_unit=req.duration_unit,
-            barrier=req.prediction,
+            barrier=barrier,
             currency=req.currency
         )
 

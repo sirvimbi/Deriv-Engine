@@ -217,40 +217,47 @@ public struct SettingsView: View {
     }
 
     private var strategyCard: some View {
-        settingsCard("Digit Strategy Rules", systemImage: "die.face.5.fill") {
-            dropdownRow("Under Entry Trigger Digit") {
-                IntegerDropdown("Under Entry Trigger Digit", value: $viewModel.config.under_trigger_digit, range: 0...9)
+        settingsCard("Trading Strategy", systemImage: "chart.line.uptrend.xyaxis") {
+            dropdownRow("Trading Type") {
+                ContractModeDropdown(value: $viewModel.config.contract_type_mode)
             }
-            dropdownRow("Over Entry Trigger Digit") {
-                IntegerDropdown("Over Entry Trigger Digit", value: $viewModel.config.over_trigger_digit, range: 0...9)
+
+            if viewModel.isRiseFallMode {
+                Text("Rise/Fall mode trades CALL (Rise), PUT (Fall), or follows the latest tick direction. No digit barrier is used.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                dropdownRow("Under Entry Trigger Digit") {
+                    IntegerDropdown("Under Entry Trigger Digit", value: $viewModel.config.under_trigger_digit, range: 0...9)
+                }
+                dropdownRow("Over Entry Trigger Digit") {
+                    IntegerDropdown("Over Entry Trigger Digit", value: $viewModel.config.over_trigger_digit, range: 0...9)
+                }
+                dropdownRow("Digit Contract Barrier (Win)") {
+                    IntegerDropdown("Digit Contract Barrier (Win)", value: $viewModel.config.win_predict_digit, range: viewModel.digitBarrierRange)
+                }
+                dropdownRow("Loss Prediction Digit") {
+                    IntegerDropdown("Loss Prediction Digit", value: $viewModel.config.loss_predict_digit, range: viewModel.digitBarrierRange)
+                }
+                dropdownRow("Recovery Win Target Prediction Digit") {
+                    IntegerDropdown("Recovery Win Target Prediction Digit", value: $viewModel.config.recovery_win_predict_digit, range: viewModel.digitBarrierRange)
+                }
             }
-            dropdownRow("Digit Contract Barrier (Win)") {
-                IntegerDropdown("Digit Contract Barrier (Win)", value: $viewModel.config.win_predict_digit, range: viewModel.digitBarrierRange)
-            }
-            dropdownRow("Loss Prediction Digit") {
-                IntegerDropdown("Loss Prediction Digit", value: $viewModel.config.loss_predict_digit, range: viewModel.digitBarrierRange)
-            }
-            dropdownRow("Recovery Win Target Prediction Digit") {
-                IntegerDropdown("Recovery Win Target Prediction Digit", value: $viewModel.config.recovery_win_predict_digit, range: viewModel.digitBarrierRange)
-            }
+
             dropdownRow("Recovery Win Target") {
                 IntegerDropdown("Recovery Win Target", value: $viewModel.config.recovery_wins_required, range: 0...50)
             }
             dropdownRow("Loss Cycle Target") {
                 IntegerDropdown("Loss Cycle Target", value: $viewModel.config.loss_cycle_target, range: 0...20)
             }
-            Text("0 = use the existing recovery-win target. 1-20 = divide the outstanding loss stake across recovery wins and continue until the loss cycle is recovered.")
+            Text("Recovery Win Target 0 = disabled. Loss Cycle Target 0 = disabled. If both are 0, losses do not start recovery.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            dropdownRow("Allowed Contracts") {
-                ContractModeDropdown(value: $viewModel.config.contract_type_mode)
-            }
             dropdownRow("Ticks") {
                 IntegerDropdown("Ticks", value: $viewModel.config.duration, range: 0...50)
             }
         }
     }
-
     private var actionsCard: some View {
         VStack(spacing: 10) {
             Button(action: { viewModel.saveConfig() }) {

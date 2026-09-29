@@ -48,6 +48,10 @@ public class SettingsViewModel: ObservableObject {
         }
     }
 
+    public var isRiseFallMode: Bool {
+        ["CALL", "PUT", "RISEFALL"].contains(config.contract_type_mode.uppercased())
+    }
+
     public var digitBarrierRange: ClosedRange<Int> {
         switch config.contract_type_mode.uppercased() {
         case "DIGITUNDER": return 1...9
@@ -90,7 +94,7 @@ public class SettingsViewModel: ObservableObject {
             do {
                 var pending = self.config
                 pending.contract_type_mode = pending.contract_type_mode.uppercased()
-                if !["DIGITUNDER", "DIGITOVER", "BOTH"].contains(pending.contract_type_mode) {
+                if !["DIGITUNDER", "DIGITOVER", "BOTH", "CALL", "PUT", "RISEFALL"].contains(pending.contract_type_mode) {
                     pending.contract_type_mode = "BOTH"
                 }
                 self.clampDigitBarriersForSelectedMode()
