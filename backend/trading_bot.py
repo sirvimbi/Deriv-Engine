@@ -679,7 +679,7 @@ class TradingBot:
         self,
         poc: Dict[str, Any],
         trade_contract_type: str,
-        trade_prediction: int,
+        trade_prediction: Optional[int],
         trade_stake: float,
         contract_id: int
     ):
@@ -716,10 +716,17 @@ class TradingBot:
         expected_win: Optional[bool] = None
         contract_upper = str(trade_contract_type).upper()
         if exit_digit is not None:
-            if contract_upper == "DIGITOVER":
+            if contract_upper == "DIGITOVER" and trade_prediction is not None:
                 expected_win = exit_digit > int(trade_prediction)
-            elif contract_upper == "DIGITUNDER":
+            elif contract_upper == "DIGITUNDER" and trade_prediction is not None:
                 expected_win = exit_digit < int(trade_prediction)
+            elif contract_upper in ("CALL", "PUT") and entry_spot is not None and exit_spot is not None:
+                try:
+                    entry_value = Decimal(str(entry_spot))
+                    exit_value = Decimal(str(exit_spot))
+                    expected_win = exit_value > entry_value if contract_upper == "CALL" else exit_value < entry_value
+                except (TypeError, ValueError, ArithmeticError):
+                    expected_win = None
 
         settlement_parts = [
             f"CONTRACT SETTLED | id={contract_id}",
