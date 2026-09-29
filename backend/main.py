@@ -375,15 +375,24 @@ async def get_account_balance(token: str = None):
                 raise RuntimeError(
                     f"Authenticated Deriv account mismatch: active={active_type}, configured={configured_type}. Re-authentication is required before displaying or trading on this account."
                 )
-            balance = await bot.client.get_balance()
+
+            # Balance subscription is the live source of truth. Return the
+            # cached value instead of consuming the balance quota on every UI
+            # refresh. Only request balance when no subscription value exists.
+            if bot.account_balance is None:
+                balance = await bot.client.get_balance()
+                await bot._on_balance(balance)
+            else:
+                balance = {"balance": bot.account_balance, "currency": bot.config.currency}
         else:
             if not api_token:
                 raise RuntimeError("Deriv API token is not configured.")
             await bot.client.authorize(api_token)
-            await bot.client.subscribe_balance(bot._on_balance)
-            balance = await bot.client.get_balance()
+            subscription_response = await bot.client.subscribe_balance(bot._on_balance)
+            balance = subscription_response.get("balance") or {}
+            if balance.get("balance") is not None:
+                await bot._on_balance(balance)
 
-        await bot._on_balance(balance)
         return {
             "status": "success",
             "balance": balance,
