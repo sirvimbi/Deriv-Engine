@@ -52,6 +52,7 @@ class TradingBot:
         
         self.last_digit: Optional[int] = None
         self.last_tick_quote: Optional[float] = None
+        self.previous_tick_quote: Optional[float] = None
         self.last_tick_pip_size: Optional[int] = None
         self.start_time_epoch = time.time()
         self.session_start_epoch = 0
@@ -337,7 +338,12 @@ class TradingBot:
         if quote is None:
             return
 
-        self.last_tick_quote = float(quote)
+        current_quote = float(quote)
+        previous_quote = self.last_tick_quote
+        self.previous_tick_quote = previous_quote
+        self.last_tick_quote = current_quote
+        mode = self.config.contract_type_mode.upper()
+        rise_fall_mode = mode in ("CALL", "PUT", "RISEFALL")
         
         # Deriv's current tick schema makes pip_size optional. Never assume
         # two decimals: doing so changes the last digit for markets whose
@@ -352,11 +358,11 @@ class TradingBot:
         self.last_tick_pip_size = max(0, pip_size) if pip_size is not None else None
         self.last_digit = self._extract_last_digit_from_quote(quote, pip_size)
 
-        if self.last_digit is None:
+        if self.last_digit is None and not rise_fall_mode:
             self.add_log(
                 "warn",
                 f"Unable to determine last digit from tick quote={quote!r} "
-                f"pip_size={raw_pip_size!r}; tick ignored for entry decisions."
+                f"pip_size={raw_pip_size!r}; tick ignored for digit entry decisions."
             )
             return
 
@@ -399,13 +405,28 @@ class TradingBot:
             self._schedule_trade(self.active_contract_type)
             return
 
-        # Normal/base-stake entry respects the configured allowed contract mode.
-        # The first valid trigger selects the contract type; that type remains
-        # fixed through recovery until the recovery target is completed.
+        # Normal/base-stake entry supports both digit contracts and Rise/Fall.
         if self.in_recovery_cycle:
             return
 
-        mode = self.config.contract_type_mode.upper()
+        if mode in ("CALL", "PUT", "RISEFALL"):
+            if abs(self.stake - self.config.base_stake) >= 0.001:
+                return
+            direction = mode
+            if mode == "RISEFALL":
+                if previous_quote is None or current_quote == previous_quote:
+                    return
+                direction = "CALL" if current_quote > previous_quote else "PUT"
+            direction_label = "RISE" if direction == "CALL" else "FALL"
+            self.add_log(
+                "info",
+                f"ENTRY TRIGGER HIT | type={direction} | direction={direction_label} | "
+                f"previous_quote={previous_quote if previous_quote is not None else 'n/a'} | "
+                f"current_quote={current_quote} | stake=${self.stake:.2f}"
+            )
+            self._schedule_trade(direction)
+            return
+
         under_allowed = mode in ("DIGITUNDER", "BOTH")
         over_allowed = mode in ("DIGITOVER", "BOTH")
 
