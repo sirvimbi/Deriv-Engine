@@ -57,8 +57,9 @@ class TradingBot:
         self.last_tick_pip_size: Optional[int] = None
         self.start_time_epoch = time.time()
         self.session_start_epoch = 0
-        # BOTH mode is anchored to wall-clock six-hour windows, never bot
-        # runtime. The current window gets an independent random orientation.
+        # BOTH mode is anchored to configurable wall-clock inverse windows,
+        # never bot runtime. The current window gets an independent random
+        # orientation when inverse logic is enabled.
         self.both_direction_window = 0
         self.both_direction_anchor_digit: Optional[int] = None
         self.both_generator_digit: Optional[int] = None
@@ -186,9 +187,11 @@ class TradingBot:
         if digit is None or digit == 5 or not 0 <= int(digit) <= 9:
             return None
 
-        window = int(time.time() // (6 * 60 * 60))
+        interval_hours = max(1, int(self.config.both_inverse_interval_hours))
+        interval_seconds = interval_hours * 60 * 60
+        window = int(time.time() // interval_seconds)
         self.both_direction_window = window
-        inverted = (window % 2) == 1
+        inverted = bool(self.config.both_inverse_enabled) and (window % 2) == 1
 
         if not inverted:
             return "DIGITOVER" if digit <= 4 else "DIGITUNDER"
@@ -206,7 +209,7 @@ class TradingBot:
         A Martingale value of 0 means disabled. It must never produce a
         zero-dollar stake or alter the next stake.
         """
-        if self.config.martingale <= 0:
+        if not self.config.martingale_enabled or self.config.martingale <= 0:
             self.stake = self.config.base_stake
             self.add_log(
                 "info",
@@ -303,7 +306,9 @@ class TradingBot:
             f"({'enabled' if self.config.recovery_wins_required > 0 else 'disabled'}) | "
             f"Loss cycle target={self.config.loss_cycle_target} "
             f"({'enabled' if self.config.loss_cycle_target > 0 else 'disabled'}) | "
-            f"Martingale={'enabled' if self.config.martingale > 0 else 'disabled'}"
+            f"Martingale={'enabled' if self.config.martingale_enabled and self.config.martingale > 0 else 'disabled'} | "
+            f"BOTH inverse={'enabled' if self.config.both_inverse_enabled else 'disabled'} | "
+            f"inverse interval={self.config.both_inverse_interval_hours}h"
         )
         if self.status_broadcast_callback:
             try:
@@ -497,7 +502,7 @@ class TradingBot:
                     )
                 return
 
-            inverted = (window % 2) == 1
+            inverted = bool(self.config.both_inverse_enabled) and (window % 2) == 1
             mapping = (
                 "0-4=UNDER, 6-9=OVER" if inverted
                 else "0-4=OVER, 6-9=UNDER"
@@ -505,7 +510,7 @@ class TradingBot:
             self.add_log(
                 "info",
                 f"BOTH SIGNAL | generator_digit={self.both_generator_digit} | type={direction} | "
-                f"barrier={(self.config.both_under_barrier if direction == "DIGITUNDER" else self.config.both_over_barrier)} | six_hour_window={window + 1} | "
+                f"barrier={(self.config.both_under_barrier if direction == "DIGITUNDER" else self.config.both_over_barrier)} | inverse_window={window + 1} | "
                 f"mapping={mapping} | inverted={'YES' if inverted else 'NO'} | "
                 f"stake=${self.stake:.2f}"
             )

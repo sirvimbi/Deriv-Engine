@@ -25,8 +25,8 @@ def test_both_normal_mapping():
     assert bot._both_direction_for_digit(9) == "DIGITUNDER"
 
 
-def test_both_mapping_inverts_on_next_six_hour_window(monkeypatch):
-    bot = make_bot()
+def test_both_mapping_inverts_on_configured_interval(monkeypatch):
+    bot = make_bot(both_inverse_enabled=True, both_inverse_interval_hours=6)
     six_hours = 6 * 60 * 60
 
     monkeypatch.setattr(time, "time", lambda: 100 * six_hours + 1)
@@ -37,6 +37,27 @@ def test_both_mapping_inverts_on_next_six_hour_window(monkeypatch):
 
     monkeypatch.setattr(time, "time", lambda: 101 * six_hours + 1)
     assert bot._both_direction_for_digit(8) == "DIGITOVER"
+
+
+def test_both_inverse_can_be_disabled(monkeypatch):
+    bot = make_bot(both_inverse_enabled=False, both_inverse_interval_hours=1)
+
+    monkeypatch.setattr(time, "time", lambda: 100 * 60 * 60 + 1)
+    assert bot._both_direction_for_digit(2) == "DIGITOVER"
+
+    monkeypatch.setattr(time, "time", lambda: 101 * 60 * 60 + 1)
+    assert bot._both_direction_for_digit(2) == "DIGITOVER"
+
+
+def test_both_inverse_uses_custom_interval(monkeypatch):
+    bot = make_bot(both_inverse_enabled=True, both_inverse_interval_hours=3)
+    three_hours = 3 * 60 * 60
+
+    monkeypatch.setattr(time, "time", lambda: 100 * three_hours + 1)
+    assert bot._both_direction_for_digit(2) == "DIGITOVER"
+
+    monkeypatch.setattr(time, "time", lambda: 101 * three_hours + 1)
+    assert bot._both_direction_for_digit(2) == "DIGITUNDER"
 
 
 def test_next_both_direction_uses_fresh_random_digit():
@@ -101,6 +122,18 @@ def test_both_barrier_follows_actual_contract_type():
     bot = make_bot()
     assert bot._barrier_for_contract("DIGITUNDER") == 4
     assert bot._barrier_for_contract("DIGITOVER") == 5
+
+
+def test_martingale_requires_explicit_enable():
+    disabled = make_bot(martingale_enabled=False, martingale=2.0, base_stake=5.0)
+    disabled.stake = 5.0
+    disabled._apply_martingale_after_loss()
+    assert disabled.stake == 5.0
+
+    enabled = make_bot(martingale_enabled=True, martingale=2.0, base_stake=5.0)
+    enabled.stake = 5.0
+    enabled._apply_martingale_after_loss()
+    assert enabled.stake == 10.0
 
 
 def test_both_recovery_does_not_replace_new_direction_with_old_lock():

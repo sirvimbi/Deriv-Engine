@@ -167,28 +167,22 @@ public struct SettingsView: View {
             dropdownRow("Max Stake Limit ($)") {
                 DecimalAmountDropdown("Max Stake Limit", value: $viewModel.config.max_stake, range: 0...1000)
             }
-            dropdownRow("Martingale") {
-                if viewModel.config.martingale <= 0 {
-                    Label("DISABLED", systemImage: "slash.circle.fill")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule()
-                                .fill(Color.secondary.opacity(0.12))
-                        )
-                } else {
+            Toggle("Enable Martingale", isOn: $viewModel.config.martingale_enabled)
+                .toggleStyle(.switch)
+            if viewModel.config.martingale_enabled {
+                dropdownRow("Martingale Multiplier") {
                     HStack(spacing: 10) {
-                        DoubleDropdown("Martingale Multiplier", value: $viewModel.config.martingale, range: 0...50, step: 0.1)
+                        DoubleDropdown("Martingale Multiplier", value: $viewModel.config.martingale, range: 0.1...50, step: 0.1)
                         Text(String(format: "%.1fx", viewModel.config.martingale))
                             .font(.system(size: 12, weight: .semibold, design: .monospaced))
                             .foregroundStyle(.secondary)
                     }
                 }
-            }
-            if viewModel.config.martingale <= 0 {
-                Text("Martingale: DISABLED — losses will not multiply the stake.")
+                Text("After a loss, the next stake is multiplied by the configured value, capped by Max Stake Limit.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Martingale: OFF — losses will not multiply the stake.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -243,6 +237,21 @@ public struct SettingsView: View {
                     Text("BOTH uses separate barriers. Defaults: UNDER 4 (0-3 wins) and OVER 5 (6-9 wins), keeping the two sides at the same 40% digit probability.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    Toggle("Enable Inverse Generator Logic", isOn: $viewModel.config.both_inverse_enabled)
+                        .toggleStyle(.switch)
+                    if viewModel.config.both_inverse_enabled {
+                        dropdownRow("Inverse Every (hours)") {
+                            IntegerDropdown("Inverse Every (hours)", value: $viewModel.config.both_inverse_interval_hours, range: 1...24)
+                        }
+                        Text("When enabled, BOTH alternates its digit-to-contract mapping at each wall-clock interval. Default: every 6 hours. When OFF, the normal mapping is always used.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Inverse Generator Logic: OFF — BOTH stays on the normal 0-4 → OVER and 6-9 → UNDER mapping.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 } else {
                     dropdownRow("Digit Contract Barrier (Win)") {
                         IntegerDropdown("Digit Contract Barrier (Win)", value: $viewModel.config.win_predict_digit, range: viewModel.digitBarrierRange)
@@ -340,9 +349,9 @@ private extension SettingsView {
             "",
             "Base Stake: $\(c.base_stake)",
             "Max Stake Limit: $\(c.max_stake)",
-            c.martingale <= 0
-                ? "Martingale: DISABLED"
-                : String(format: "Martingale: %.1fx", c.martingale),
+            c.martingale_enabled
+                ? String(format: "Martingale: ON (%.1fx)", c.martingale)
+                : "Martingale: OFF",
             "",
             "Take Profit: $\(c.take_profit)",
             "Max Runs / Trades: \(c.max_runs)",
@@ -353,6 +362,8 @@ private extension SettingsView {
             "Win Prediction Digit: \(c.win_predict_digit)",
             "BOTH DigitUNDER Barrier: \(c.both_under_barrier)",
             "BOTH DigitOVER Barrier: \(c.both_over_barrier)",
+            "BOTH Inverse Generator: \(c.both_inverse_enabled ? "ON" : "OFF")",
+            "BOTH Inverse Interval Hours: \(c.both_inverse_interval_hours)",
             "Loss Prediction Digit: \(c.loss_predict_digit)",
             "Recovery Win Target Prediction Digit: \(c.recovery_win_predict_digit)",
             "Recovery Win Target: \(c.recovery_wins_required)",
