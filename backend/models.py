@@ -59,7 +59,7 @@ class TradingConfig(BaseModel):
     take_profit: float = Field(default=500.0, ge=0, le=500, description="Take Profit Target (0-500); 0 disables the target.")
     stop_loss: float = Field(default=500.0, ge=0, le=500, description="Hard Stop Loss Limit (0-500); 0 disables the limit.")
     auto_restart_after_stop: bool = Field(default=False, description="Automatically restart one minute after a Take Profit or Hard Stop Loss.")
-auto_restart_after_stop: bool = Field(default=False, description="Automatically restart one minute after a Take Profit or Hard Stop Loss.")
+    auto_restart_after_stop: bool = Field(default=False, description="Automatically restart one minute after a Take Profit or Hard Stop Loss.")
     auto_restart_after_take_profit: bool = Field(default=False, description="Legacy alias for auto_restart_after_stop.")
     max_runs: int = Field(default=250, ge=0, le=500, description="Maximum Number of Runs/Trades (0-500)")
     max_loss_streak: int = Field(default=4, ge=0, le=50, description="Max Loss Streak Before Reset (0-50)")
