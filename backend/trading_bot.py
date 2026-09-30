@@ -56,6 +56,9 @@ class TradingBot:
         self.last_tick_pip_size: Optional[int] = None
         self.start_time_epoch = time.time()
         self.session_start_epoch = 0
+        # BOTH mode alternates its digit-to-contract mapping every six hours.
+        # The first window is 0-4 => OVER and 6-9 => UNDER; digit 5 skips.
+        self.both_direction_window = 0
         self.stop_reason: Optional[str] = None
         
         self.logs: List[LogMessage] = []
@@ -168,6 +171,24 @@ class TradingBot:
             self.time_duration = new_config.duration
         self.add_log("info", "Bot strategy configuration updated.")
 
+    def _both_direction_for_digit(self, digit: Optional[int]) -> Optional[str]:
+        """Map the live last digit to a BOTH-mode contract direction.
+
+        Window 1 (first six hours): 0-4 => DIGITOVER, 5 => skip, 6-9 => DIGITUNDER.
+        Window 2: the mapping is inverted. This alternates every six hours.
+        """
+        if digit is None or digit == 5 or not 0 <= int(digit) <= 9:
+            return None
+
+        elapsed = max(0.0, time.time() - self.start_time_epoch)
+        window = int(elapsed // (6 * 60 * 60))
+        self.both_direction_window = window
+        inverted = (window % 2) == 1
+
+        if not inverted:
+            return "DIGITOVER" if digit <= 4 else "DIGITUNDER"
+        return "DIGITUNDER" if digit <= 4 else "DIGITOVER"
+
     def _apply_martingale_after_loss(self):
         """Apply Martingale only when its multiplier is explicitly enabled.
 
@@ -253,6 +274,7 @@ class TradingBot:
         self.loss_in_row = 0
         self.current_loss_streak = 0
         self.start_time_epoch = time.time()
+        self.both_direction_window = 0
         self.stop_reason = None
 
         self.add_log(
@@ -417,17 +439,43 @@ class TradingBot:
             self._schedule_trade(direction)
             return
 
-        under_allowed = mode in ("DIGITUNDER", "BOTH")
-        over_allowed = mode in ("DIGITOVER", "BOTH")
+        if mode == "BOTH":
+            if abs(self.stake - self.config.base_stake) >= 0.001:
+                return
 
-        if under_allowed and self.last_digit == self.config.under_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
+            direction = self._both_direction_for_digit(self.last_digit)
+            window = self.both_direction_window
+            if direction is None:
+                if self.last_digit == 5:
+                    self.add_log(
+                        "info",
+                        "BOTH SIGNAL SKIPPED | generator_digit=5 | result=BREAK_EVEN | no contract placed."
+                    )
+                return
+
+            inverted = (window % 2) == 1
+            mapping = (
+                "0-4=UNDER, 6-9=OVER" if inverted
+                else "0-4=OVER, 6-9=UNDER"
+            )
+            self.add_log(
+                "info",
+                f"BOTH SIGNAL | generator_digit={self.last_digit} | type={direction} | "
+                f"barrier={self.config.win_predict_digit} | six_hour_window={window + 1} | "
+                f"mapping={mapping} | inverted={'YES' if inverted else 'NO'} | "
+                f"stake=${self.stake:.2f}"
+            )
+            self._schedule_trade(direction)
+            return
+
+        if mode == "DIGITUNDER" and self.last_digit == self.config.under_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
             self.add_log(
                 "info",
                 f"ENTRY TRIGGER HIT | type=DIGITUNDER | trigger_digit={self.last_digit} | "
                 f"barrier={self.config.win_predict_digit} | stake=${self.stake:.2f}"
             )
             self._schedule_trade("DIGITUNDER")
-        elif over_allowed and self.last_digit == self.config.over_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
+        elif mode == "DIGITOVER" and self.last_digit == self.config.over_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
             self.add_log(
                 "info",
                 f"ENTRY TRIGGER HIT | type=DIGITOVER | trigger_digit={self.last_digit} | "
