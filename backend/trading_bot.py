@@ -348,7 +348,7 @@ class TradingBot:
         """Restart once, 60 seconds after a Take Profit or Hard Stop Loss stop when enabled."""
         try:
             await asyncio.sleep(60)
-            if self.is_running or not self.config.auto_restart_after_take_profit:
+            if self.is_running or not self.config.auto_restart_after_stop:
                 return
             self.add_log("info", "AUTO-RESTART | 60-second Take Profit cooldown complete. Restarting bot.")
             await self.start()
