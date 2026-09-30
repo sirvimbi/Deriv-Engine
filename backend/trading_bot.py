@@ -344,8 +344,8 @@ class TradingBot:
             except Exception:
                 pass
 
-    async def _restart_after_take_profit(self):
-        """Restart once, 60 seconds after a Take Profit stop when enabled."""
+    async def _restart_after_stop(self):
+        """Restart once, 60 seconds after a Take Profit or Hard Stop Loss stop when enabled."""
         try:
             await asyncio.sleep(60)
             if self.is_running or not self.config.auto_restart_after_take_profit:
