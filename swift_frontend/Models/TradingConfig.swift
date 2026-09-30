@@ -10,6 +10,7 @@ public struct TradingConfig: Codable, Equatable {
     public var martingale: Double
     public var take_profit: Double
     public var stop_loss: Double
+    public var auto_restart_after_stop: Bool
     public var auto_restart_after_take_profit: Bool
     public var max_runs: Int
     public var max_loss_streak: Int
