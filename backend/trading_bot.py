@@ -410,7 +410,7 @@ class TradingBot:
 
         # Recovery state is authoritative. Do not use stake > base_stake
         # as the recovery test: max_stake can clamp recovery to base_stake.
-        if self.in_recovery_cycle and self.active_contract_type:
+        if self.in_recovery_cycle:
             # Recovery must not fire immediately after a loss. The cooldown is
             # measured from settlement using a monotonic clock.
             remaining = self.recovery_cooldown_until - time.monotonic()
@@ -426,6 +426,35 @@ class TradingBot:
             if self._recovery_cooldown_logged:
                 self._recovery_cooldown_logged = False
                 self.add_log("info", "RECOVERY COOLDOWN COMPLETE | recovery trading re-armed.")
+
+            if mode == "BOTH":
+                direction = self._next_both_direction()
+                if direction is None:
+                    self.add_log(
+                        "info",
+                        f"BOTH RECOVERY SIGNAL SKIPPED | generator_digit={self.both_generator_digit} | "
+                        "result=BREAK_EVEN | no contract placed."
+                    )
+                    return
+                barrier = (
+                    self.config.both_under_barrier
+                    if direction == "DIGITUNDER"
+                    else self.config.both_over_barrier
+                )
+                self.add_log(
+                    "info",
+                    f"BOTH RECOVERY SIGNAL | generator_digit={self.both_generator_digit} | "
+                    f"type={direction} | barrier={barrier} | recovery_phase={self.recovery_phase} | "
+                    f"six_hour_window={self.both_direction_window + 1} | "
+                    f"inverted={'YES' if self.both_direction_window % 2 else 'NO'} | "
+                    f"stake=\${self.stake:.2f}"
+                )
+                self._schedule_trade(direction)
+                return
+
+            if not self.active_contract_type:
+                self.add_log("error", "RECOVERY BLOCKED | no active contract type is available.")
+                return
 
             self.predict = (self.config.loss_predict_digit if self.recovery_phase == 1 else self.config.recovery_win_predict_digit)
             self._schedule_trade(self.active_contract_type)
