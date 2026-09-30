@@ -97,8 +97,9 @@ public class APIService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(config)
 
-        let (data, _) = try await URLSession.shared.data(for: request)
-        return try JSONDecoder().decode(TradingConfig.self, from: data)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateHTTPResponse(response, data: data, endpoint: "config update")
+        return try decodeResponse(TradingConfig.self, from: data, endpoint: "config update")
     }
 
     public func startBot() async throws -> [String: String] {
