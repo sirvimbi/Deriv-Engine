@@ -542,7 +542,19 @@ class TradingBot:
 
         # Capture immutable trade context before any await. Settlement uses
         # this exact context rather than whatever state the next step has.
-        if self.in_recovery_cycle and self.active_contract_type:
+        # BOTH must choose its contract independently for every trade.
+        # Never let the previous recovery contract override a new BOTH signal.
+        if self.config.contract_type_mode.upper() == "BOTH":
+            if contract_type.upper() not in ("DIGITUNDER", "DIGITOVER"):
+                self.is_trade_in_progress = False
+                self.add_log(
+                    "error",
+                    f"INVALID BOTH CONTRACT | requested={contract_type}. "
+                    "Only DIGITUNDER or DIGITOVER is permitted."
+                )
+                return
+            self.active_contract_type = None
+        elif self.in_recovery_cycle and self.active_contract_type:
             contract_type = self.active_contract_type
         elif not self.in_recovery_cycle:
             self.active_contract_type = contract_type
@@ -556,7 +568,17 @@ class TradingBot:
             if trade_prediction is not None:
                 self.predict = trade_prediction
         else:
-            trade_prediction = None if trade_contract_type in ("CALL", "PUT") else int(self.config.win_predict_digit)
+            if (
+                self.config.contract_type_mode.upper() == "BOTH"
+                and trade_contract_type in ("DIGITUNDER", "DIGITOVER")
+            ):
+                trade_prediction = (
+                    self.config.both_under_barrier
+                    if trade_contract_type == "DIGITUNDER"
+                    else self.config.both_over_barrier
+                )
+            else:
+                trade_prediction = None if trade_contract_type in ("CALL", "PUT") else int(self.config.win_predict_digit)
             if trade_prediction is not None:
                 self.predict = trade_prediction
         trade_stake = float(self.stake)
@@ -609,7 +631,7 @@ class TradingBot:
             f"EXECUTION REQUEST | type={trade_contract_type} | barrier={trade_prediction} | "
             f"stake=${trade_stake:.2f} | recovery={self.in_recovery_cycle} | phase={self.recovery_phase} | "
             f"recovery_wins={self.recovery_win_count}/{max(1, self.config.recovery_wins_required)} | "
-            f"locked_contract={self.active_contract_type or trade_contract_type}"
+            f"locked_contract={self.active_contract_type or 'NONE (BOTH rotates)'}"
         )
 
         try:
