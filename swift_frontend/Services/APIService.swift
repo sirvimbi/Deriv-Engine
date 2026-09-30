@@ -95,10 +95,19 @@ public class APIService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(config)
+        // Build the request payload explicitly so the canonical auto-restart
+        // toggle cannot be lost by Codable aliasing or an older backend.
+        var payload = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(config),
+            options: []
+        ) as? [String: Any] ?? [:]
+        payload["auto_restart_after_stop"] = config.auto_restart_after_stop
+        payload["auto_restart_after_take_profit"] = config.auto_restart_after_stop
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-        let (data, _) = try await URLSession.shared.data(for: request)
-        return try JSONDecoder().decode(TradingConfig.self, from: data)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateHTTPResponse(response, data: data, endpoint: "config update")
+        return try decodeResponse(TradingConfig.self, from: data, endpoint: "config update")
     }
 
     public func startBot() async throws -> [String: String] {
