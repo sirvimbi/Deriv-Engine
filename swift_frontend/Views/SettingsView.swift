@@ -192,8 +192,16 @@ public struct SettingsView: View {
     private var riskCard: some View {
         settingsCard("Risk & Profit Targets", systemImage: "shield.fill") {
             dropdownRow("Take Profit ($)") {
-                IntegerDropdown("Take Profit", value: takeProfitInt, range: 0...10000)
+                DecimalAmountDropdown("Take Profit", value: $viewModel.config.take_profit, range: 0...500)
             }
+            dropdownRow("Hard Stop Loss ($)") {
+                DecimalAmountDropdown("Hard Stop Loss", value: $viewModel.config.stop_loss, range: 0...500)
+            }
+            Toggle("Auto-start after Take Profit", isOn: $viewModel.config.auto_restart_after_take_profit)
+                .toggleStyle(.switch)
+            Text("When enabled, a Take Profit stop starts a fresh bot session automatically after 1 minute. A manual stop or Hard Stop Loss does not trigger auto-restart.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             dropdownRow("Max Runs / Trades") {
                 IntegerDropdown("Max Runs / Trades", value: $viewModel.config.max_runs, range: 0...500)
             }
@@ -201,13 +209,6 @@ public struct SettingsView: View {
                 IntegerDropdown("Max Loss Streak", value: $viewModel.config.max_loss_streak, range: 0...50)
             }
         }
-    }
-
-    private var takeProfitInt: Binding<Int> {
-        Binding(
-            get: { Int(viewModel.config.take_profit.rounded()) },
-            set: { viewModel.config.take_profit = Double($0) }
-        )
     }
 
     private var strategyCard: some View {
@@ -354,6 +355,8 @@ private extension SettingsView {
                 : "Martingale: OFF",
             "",
             "Take Profit: $\(c.take_profit)",
+            "Hard Stop Loss: $\(c.stop_loss)",
+            "Auto-start after Take Profit: \(c.auto_restart_after_take_profit ? "ON (1 minute)" : "OFF")",
             "Max Runs / Trades: \(c.max_runs)",
             "Max Loss Streak: \(c.max_loss_streak)",
             "",
