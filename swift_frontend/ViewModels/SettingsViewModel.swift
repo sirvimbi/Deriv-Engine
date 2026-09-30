@@ -98,8 +98,6 @@ public class SettingsViewModel: ObservableObject {
     }
 
     public func saveConfig() {
-        // Invalidate any in-flight initial config load so it cannot overwrite
-        // the values the user is saving when its response arrives late.
         configLoadGeneration = UUID()
         Task {
             isSaving = true
@@ -112,8 +110,6 @@ public class SettingsViewModel: ObservableObject {
                     pending.contract_type_mode = "BOTH"
                 }
                 self.clampDigitBarriersForSelectedMode()
-                // Keep the legacy field synchronized so older/newer backends cannot
-                // silently round-trip the toggle back to OFF.
                 self.config.auto_restart_after_take_profit = self.config.auto_restart_after_stop
                 pending = self.config
                 pending.contract_type_mode = pending.contract_type_mode.uppercased()
