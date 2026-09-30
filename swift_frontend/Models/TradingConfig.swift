@@ -95,6 +95,57 @@ public struct TradingConfig: Codable, Equatable {
         self.account_type = account_type
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case api_token, app_id, symbol, base_stake, max_stake
+        case martingale_enabled, martingale, take_profit, stop_loss
+        case auto_restart_after_stop, auto_restart_after_take_profit
+        case max_runs, max_loss_streak, under_trigger_digit, over_trigger_digit
+        case win_predict_digit, both_under_barrier, both_over_barrier
+        case both_inverse_enabled, both_inverse_interval_hours
+        case loss_predict_digit, recovery_win_predict_digit
+        case duration, duration_unit, currency, recovery_wins_required
+        case loss_cycle_target, contract_type_mode, account_type
+    }
+
+    /// Encode the canonical auto-restart value into both the new and legacy
+    /// JSON keys. This makes the Swift -> backend round-trip deterministic
+    /// instead of relying on synthesized Codable behavior for the alias.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(api_token, forKey: .api_token)
+        try c.encode(app_id, forKey: .app_id)
+        try c.encode(symbol, forKey: .symbol)
+        try c.encode(base_stake, forKey: .base_stake)
+        try c.encode(max_stake, forKey: .max_stake)
+        try c.encode(martingale_enabled, forKey: .martingale_enabled)
+        try c.encode(martingale, forKey: .martingale)
+        try c.encode(take_profit, forKey: .take_profit)
+        try c.encode(stop_loss, forKey: .stop_loss)
+
+        // One source of truth: auto_restart_after_stop.
+        try c.encode(auto_restart_after_stop, forKey: .auto_restart_after_stop)
+        try c.encode(auto_restart_after_stop, forKey: .auto_restart_after_take_profit)
+
+        try c.encode(max_runs, forKey: .max_runs)
+        try c.encode(max_loss_streak, forKey: .max_loss_streak)
+        try c.encode(under_trigger_digit, forKey: .under_trigger_digit)
+        try c.encode(over_trigger_digit, forKey: .over_trigger_digit)
+        try c.encode(win_predict_digit, forKey: .win_predict_digit)
+        try c.encode(both_under_barrier, forKey: .both_under_barrier)
+        try c.encode(both_over_barrier, forKey: .both_over_barrier)
+        try c.encode(both_inverse_enabled, forKey: .both_inverse_enabled)
+        try c.encode(both_inverse_interval_hours, forKey: .both_inverse_interval_hours)
+        try c.encode(loss_predict_digit, forKey: .loss_predict_digit)
+        try c.encode(recovery_win_predict_digit, forKey: .recovery_win_predict_digit)
+        try c.encode(duration, forKey: .duration)
+        try c.encode(duration_unit, forKey: .duration_unit)
+        try c.encode(currency, forKey: .currency)
+        try c.encode(recovery_wins_required, forKey: .recovery_wins_required)
+        try c.encode(loss_cycle_target, forKey: .loss_cycle_target)
+        try c.encode(contract_type_mode, forKey: .contract_type_mode)
+        try c.encode(account_type, forKey: .account_type)
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         api_token = try c.decodeIfPresent(String.self, forKey: .api_token) ?? ""
