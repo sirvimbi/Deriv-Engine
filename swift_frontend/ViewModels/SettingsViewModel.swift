@@ -69,6 +69,8 @@ public class SettingsViewModel: ObservableObject {
         config.both_over_barrier = min(max(config.both_over_barrier, 0), 8)
         config.both_inverse_interval_hours = min(max(config.both_inverse_interval_hours, 1), 24)
         config.martingale = min(max(config.martingale, 0), 50)
+        config.take_profit = min(max(config.take_profit, 0), 500)
+        config.stop_loss = min(max(config.stop_loss, 0), 500)
     }
 
     /// Switch the actual authenticated Deriv trading account and refresh the
