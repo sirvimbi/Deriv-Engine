@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 import time
 from decimal import Decimal
 from datetime import datetime
@@ -56,6 +57,10 @@ class TradingBot:
         self.last_tick_pip_size: Optional[int] = None
         self.start_time_epoch = time.time()
         self.session_start_epoch = 0
+        # BOTH mode is anchored to wall-clock six-hour windows, never bot
+        # runtime. The current window gets an independent random orientation.
+        self.both_direction_window = 0
+        self.both_direction_anchor_digit: Optional[int] = None
         self.stop_reason: Optional[str] = None
         
         self.logs: List[LogMessage] = []
@@ -168,6 +173,37 @@ class TradingBot:
             self.time_duration = new_config.duration
         self.add_log("info", "Bot strategy configuration updated.")
 
+    def _both_direction_for_digit(self, digit: Optional[int]) -> Optional[str]:
+        """Choose BOTH direction from live digit using wall-clock six-hour windows.
+
+        The bot start time is deliberately not used. Each six-hour wall-clock
+        window has a deterministic random anchor digit in 0-9. If that anchor
+        is below 6, the window starts with 0-4 => OVER and 6-9 => UNDER.
+        If the anchor is 6-9, that mapping is inverted. The mapping then
+        alternates on every six-hour wall-clock window.
+
+        Digit 5 is always skipped because it is the break-even boundary.
+        """
+        if digit is None or digit == 5 or not 0 <= int(digit) <= 9:
+            return None
+
+        window = int(time.time() // (6 * 60 * 60))
+        self.both_direction_window = window
+
+        # Seed only from the wall-clock window, so restarting the bot cannot
+        # change the orientation inside the same six-hour period.
+        anchor = random.Random(window).randint(0, 9)
+        self.both_direction_anchor_digit = anchor
+
+        # anchor < 6 selects the normal mapping; anchor >= 6 selects inversion.
+        # Window parity then flips the selected mapping every six hours.
+        selected_inverted = anchor >= 6
+        inverted = selected_inverted ^ ((window % 2) == 1)
+
+        if not inverted:
+            return "DIGITOVER" if digit <= 4 else "DIGITUNDER"
+        return "DIGITUNDER" if digit <= 4 else "DIGITOVER"
+
     def _apply_martingale_after_loss(self):
         """Apply Martingale only when its multiplier is explicitly enabled.
 
@@ -253,6 +289,10 @@ class TradingBot:
         self.loss_in_row = 0
         self.current_loss_streak = 0
         self.start_time_epoch = time.time()
+        # Do not reset BOTH direction from bot start time. Direction is derived
+        # from the wall-clock six-hour window in _both_direction_for_digit().
+        self.both_direction_window = int(time.time() // (6 * 60 * 60))
+        self.both_direction_anchor_digit = None
         self.stop_reason = None
 
         self.add_log(
@@ -417,17 +457,43 @@ class TradingBot:
             self._schedule_trade(direction)
             return
 
-        under_allowed = mode in ("DIGITUNDER", "BOTH")
-        over_allowed = mode in ("DIGITOVER", "BOTH")
+        if mode == "BOTH":
+            if abs(self.stake - self.config.base_stake) >= 0.001:
+                return
 
-        if under_allowed and self.last_digit == self.config.under_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
+            direction = self._both_direction_for_digit(self.last_digit)
+            window = self.both_direction_window
+            if direction is None:
+                if self.last_digit == 5:
+                    self.add_log(
+                        "info",
+                        "BOTH SIGNAL SKIPPED | generator_digit=5 | result=BREAK_EVEN | no contract placed."
+                    )
+                return
+
+            inverted = (window % 2) == 1
+            mapping = (
+                "0-4=UNDER, 6-9=OVER" if inverted
+                else "0-4=OVER, 6-9=UNDER"
+            )
+            self.add_log(
+                "info",
+                f"BOTH SIGNAL | generator_digit={self.last_digit} | type={direction} | "
+                f"barrier={self.config.win_predict_digit} | six_hour_window={window + 1} | "
+                f"mapping={mapping} | inverted={'YES' if inverted else 'NO'} | "
+                f"stake=${self.stake:.2f}"
+            )
+            self._schedule_trade(direction)
+            return
+
+        if mode == "DIGITUNDER" and self.last_digit == self.config.under_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
             self.add_log(
                 "info",
                 f"ENTRY TRIGGER HIT | type=DIGITUNDER | trigger_digit={self.last_digit} | "
                 f"barrier={self.config.win_predict_digit} | stake=${self.stake:.2f}"
             )
             self._schedule_trade("DIGITUNDER")
-        elif over_allowed and self.last_digit == self.config.over_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
+        elif mode == "DIGITOVER" and self.last_digit == self.config.over_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
             self.add_log(
                 "info",
                 f"ENTRY TRIGGER HIT | type=DIGITOVER | trigger_digit={self.last_digit} | "

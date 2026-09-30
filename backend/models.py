@@ -76,6 +76,10 @@ class TradingConfig(BaseModel):
     )
     contract_type_mode: str = Field(default="BOTH", description="Trading type: DIGITUNDER, DIGITOVER, BOTH, CALL (Rise), PUT (Fall), or RISEFALL (direction follows tick movement)")
     account_type: str = Field(default="demo", description="Deriv account type: demo or real")
+    both_random_seed: str = Field(
+        default="",
+        description="Persistent random seed used only to randomize Digit BOTH orientation independently of bot runtime."
+    )
 
 class AccountSwitchRequest(BaseModel):
     account_type: str = Field(description="Target Deriv Options account type: demo or real")

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import secrets
 import time
 from pathlib import Path
 from typing import List, Dict, Any
@@ -33,8 +34,8 @@ app.add_middleware(
 default_config = TradingConfig()
 CONFIG_FILE = Path(__file__).resolve().parent / "trading_config.json"
 
-def _normalized_config(config: TradingConfig) -> TradingConfig:
-    """Normalize persisted settings to the same canonical values used by the UI."""
+def _normalized_config(config: TradingConfig, fallback_both_seed: str = "") -> TradingConfig:
+    """Normalize settings and ensure BOTH has a persistent random seed."""
     mode = str(config.contract_type_mode).upper()
     if mode not in ("DIGITUNDER", "DIGITOVER", "BOTH", "CALL", "PUT", "RISEFALL"):
         mode = "BOTH"
@@ -42,6 +43,13 @@ def _normalized_config(config: TradingConfig) -> TradingConfig:
     data["contract_type_mode"] = mode
     account_type = str(data.get("account_type", "demo")).strip().lower()
     data["account_type"] = account_type if account_type in ("demo", "real") else "demo"
+
+    seed = str(data.get("both_random_seed", "") or "").strip()
+    if not seed:
+        seed = str(fallback_both_seed or "").strip()
+    if not seed:
+        seed = secrets.token_hex(32)
+    data["both_random_seed"] = seed
     return TradingConfig.parse_obj(data)
 
 
@@ -56,7 +64,7 @@ def load_persisted_config() -> TradingConfig:
         return _normalized_config(default_config)
 
 def persist_config(config: TradingConfig):
-    normalized = _normalized_config(config)
+    normalized = _normalized_config(config, fallback_both_seed=bot.config.both_random_seed if "bot" in globals() else "")
     tmp = CONFIG_FILE.with_suffix(".tmp")
     with tmp.open("w", encoding="utf-8") as fh:
         json.dump(normalized.dict(), fh, indent=2)
@@ -190,7 +198,7 @@ async def update_config(config: TradingConfig):
     # Account selection is an authenticated-session operation, not just a
     # UI preference. Force callers through /api/account/switch so the existing
     # WebSocket cannot remain connected to the previous account.
-    config = _normalized_config(config)
+    config = _normalized_config(config, fallback_both_seed=bot.config.both_random_seed)
     if config.account_type != bot.config.account_type:
         raise HTTPException(
             status_code=409,
