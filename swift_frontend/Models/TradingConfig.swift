@@ -14,6 +14,8 @@ public struct TradingConfig: Codable, Equatable {
     public var under_trigger_digit: Int
     public var over_trigger_digit: Int
     public var win_predict_digit: Int
+    public var both_under_barrier: Int
+    public var both_over_barrier: Int
     public var loss_predict_digit: Int
     public var recovery_win_predict_digit: Int
     public var duration: Int
@@ -40,6 +42,8 @@ public struct TradingConfig: Codable, Equatable {
         under_trigger_digit: Int = 2,
         over_trigger_digit: Int = 8,
         win_predict_digit: Int = 8,
+        both_under_barrier: Int = 4,
+        both_over_barrier: Int = 5,
         loss_predict_digit: Int = 3,
         recovery_win_predict_digit: Int = 3,
         duration: Int = 1,
@@ -63,6 +67,8 @@ public struct TradingConfig: Codable, Equatable {
         self.under_trigger_digit = under_trigger_digit
         self.over_trigger_digit = over_trigger_digit
         self.win_predict_digit = win_predict_digit
+        self.both_under_barrier = both_under_barrier
+        self.both_over_barrier = both_over_barrier
         self.loss_predict_digit = loss_predict_digit
         self.recovery_win_predict_digit = recovery_win_predict_digit
         self.duration = duration
@@ -95,6 +101,8 @@ public struct TradingConfig: Codable, Equatable {
         under_trigger_digit = try c.decodeIfPresent(Int.self, forKey: .under_trigger_digit) ?? 2
         over_trigger_digit = try c.decodeIfPresent(Int.self, forKey: .over_trigger_digit) ?? 8
         win_predict_digit = try c.decodeIfPresent(Int.self, forKey: .win_predict_digit) ?? 8
+        both_under_barrier = try c.decodeIfPresent(Int.self, forKey: .both_under_barrier) ?? 4
+        both_over_barrier = try c.decodeIfPresent(Int.self, forKey: .both_over_barrier) ?? 5
         loss_predict_digit = try c.decodeIfPresent(Int.self, forKey: .loss_predict_digit) ?? 3
         recovery_win_predict_digit = try c.decodeIfPresent(Int.self, forKey: .recovery_win_predict_digit) ?? 3
         duration = try c.decodeIfPresent(Int.self, forKey: .duration) ?? 1

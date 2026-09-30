@@ -65,6 +65,8 @@ public class SettingsViewModel: ObservableObject {
         config.win_predict_digit = min(max(config.win_predict_digit, range.lowerBound), range.upperBound)
         config.loss_predict_digit = min(max(config.loss_predict_digit, range.lowerBound), range.upperBound)
         config.recovery_win_predict_digit = min(max(config.recovery_win_predict_digit, range.lowerBound), range.upperBound)
+        config.both_under_barrier = min(max(config.both_under_barrier, 1), 9)
+        config.both_over_barrier = min(max(config.both_over_barrier, 0), 8)
     }
 
     /// Switch the actual authenticated Deriv trading account and refresh the
