@@ -289,6 +289,7 @@ class TradingBot:
         # from the wall-clock six-hour window in _both_direction_for_digit().
         self.both_direction_window = int(time.time() // (6 * 60 * 60))
         self.both_direction_anchor_digit = None
+        self.both_generator_digit = None
         self.stop_reason = None
 
         self.add_log(
@@ -486,7 +487,7 @@ class TradingBot:
             if abs(self.stake - self.config.base_stake) >= 0.001:
                 return
 
-            direction = self._both_direction_for_digit(self.last_digit)
+            direction = self._next_both_direction()
             window = self.both_direction_window
             if direction is None:
                 if self.last_digit == 5:
@@ -548,7 +549,10 @@ class TradingBot:
 
         trade_contract_type = contract_type.upper()
         if self.in_recovery_cycle:
-            trade_prediction = None if trade_contract_type in ("CALL", "PUT") else (self.config.loss_predict_digit if self.recovery_phase == 1 else self.config.recovery_win_predict_digit)
+            if self.config.contract_type_mode.upper() == "BOTH" and trade_contract_type in ("DIGITUNDER", "DIGITOVER"):
+                trade_prediction = self.config.both_under_barrier if trade_contract_type == "DIGITUNDER" else self.config.both_over_barrier
+            else:
+                trade_prediction = None if trade_contract_type in ("CALL", "PUT") else (self.config.loss_predict_digit if self.recovery_phase == 1 else self.config.recovery_win_predict_digit)
             if trade_prediction is not None:
                 self.predict = trade_prediction
         else:
@@ -973,7 +977,7 @@ class TradingBot:
                 self._apply_martingale_after_loss()
                 self.in_recovery_cycle = True
                 self.recovery_phase = 1
-                self.active_contract_type = trade_contract_type
+                self.active_contract_type = None if self.config.contract_type_mode.upper() == "BOTH" else trade_contract_type
                 self.recovery_prediction_active = False
                 self.predict = self.config.loss_predict_digit
                 self.time_duration = self.config.duration
