@@ -61,6 +61,8 @@ class TradingBot:
         # runtime. The current window gets an independent random orientation.
         self.both_direction_window = 0
         self.both_direction_anchor_digit: Optional[int] = None
+        self.both_generator_digit: Optional[int] = None
+        self._both_rng = random.SystemRandom()
         self.stop_reason: Optional[str] = None
         
         self.logs: List[LogMessage] = []
@@ -174,35 +176,29 @@ class TradingBot:
         self.add_log("info", "Bot strategy configuration updated.")
 
     def _both_direction_for_digit(self, digit: Optional[int]) -> Optional[str]:
-        """Choose BOTH direction from live digit using wall-clock six-hour windows.
+        """Map a generated 0-9 digit to BOTH contract direction.
 
-        The bot start time is deliberately not used. Each six-hour wall-clock
-        window has a deterministic random anchor digit in 0-9. If that anchor
-        is below 6, the window starts with 0-4 => OVER and 6-9 => UNDER.
-        If the anchor is 6-9, that mapping is inverted. The mapping then
-        alternates on every six-hour wall-clock window.
-
-        Digit 5 is always skipped because it is the break-even boundary.
+        Normal six-hour window: 0-4 -> OVER, 5 -> skip, 6-9 -> UNDER.
+        Every six-hour wall-clock window the mapping is inverted.
+        The generated digit is independent of the market quote and uses
+        SystemRandom, matching the requested random.randint(0, 9) behavior.
         """
         if digit is None or digit == 5 or not 0 <= int(digit) <= 9:
             return None
 
         window = int(time.time() // (6 * 60 * 60))
         self.both_direction_window = window
-
-        # Seed only from the wall-clock window, so restarting the bot cannot
-        # change the orientation inside the same six-hour period.
-        anchor = random.Random(window).randint(0, 9)
-        self.both_direction_anchor_digit = anchor
-
-        # anchor < 6 selects the normal mapping; anchor >= 6 selects inversion.
-        # Window parity then flips the selected mapping every six hours.
-        selected_inverted = anchor >= 6
-        inverted = selected_inverted ^ ((window % 2) == 1)
+        inverted = (window % 2) == 1
 
         if not inverted:
             return "DIGITOVER" if digit <= 4 else "DIGITUNDER"
         return "DIGITUNDER" if digit <= 4 else "DIGITOVER"
+
+    def _next_both_direction(self) -> Optional[str]:
+        """Generate a fresh 0-9 decision digit for BOTH mode."""
+        digit = self._both_rng.randint(0, 9)
+        self.both_generator_digit = digit
+        return self._both_direction_for_digit(digit)
 
     def _apply_martingale_after_loss(self):
         """Apply Martingale only when its multiplier is explicitly enabled.
@@ -293,6 +289,7 @@ class TradingBot:
         # from the wall-clock six-hour window in _both_direction_for_digit().
         self.both_direction_window = int(time.time() // (6 * 60 * 60))
         self.both_direction_anchor_digit = None
+        self.both_generator_digit = None
         self.stop_reason = None
 
         self.add_log(
@@ -414,7 +411,7 @@ class TradingBot:
 
         # Recovery state is authoritative. Do not use stake > base_stake
         # as the recovery test: max_stake can clamp recovery to base_stake.
-        if self.in_recovery_cycle and self.active_contract_type:
+        if self.in_recovery_cycle:
             # Recovery must not fire immediately after a loss. The cooldown is
             # measured from settlement using a monotonic clock.
             remaining = self.recovery_cooldown_until - time.monotonic()
@@ -430,6 +427,35 @@ class TradingBot:
             if self._recovery_cooldown_logged:
                 self._recovery_cooldown_logged = False
                 self.add_log("info", "RECOVERY COOLDOWN COMPLETE | recovery trading re-armed.")
+
+            if mode == "BOTH":
+                direction = self._next_both_direction()
+                if direction is None:
+                    self.add_log(
+                        "info",
+                        f"BOTH RECOVERY SIGNAL SKIPPED | generator_digit={self.both_generator_digit} | "
+                        "result=BREAK_EVEN | no contract placed."
+                    )
+                    return
+                barrier = (
+                    self.config.both_under_barrier
+                    if direction == "DIGITUNDER"
+                    else self.config.both_over_barrier
+                )
+                self.add_log(
+                    "info",
+                    f"BOTH RECOVERY SIGNAL | generator_digit={self.both_generator_digit} | "
+                    f"type={direction} | barrier={barrier} | recovery_phase={self.recovery_phase} | "
+                    f"six_hour_window={self.both_direction_window + 1} | "
+                    f"inverted={'YES' if self.both_direction_window % 2 else 'NO'} | "
+                    f"stake=${self.stake:.2f}"
+                )
+                self._schedule_trade(direction)
+                return
+
+            if not self.active_contract_type:
+                self.add_log("error", "RECOVERY BLOCKED | no active contract type is available.")
+                return
 
             self.predict = (self.config.loss_predict_digit if self.recovery_phase == 1 else self.config.recovery_win_predict_digit)
             self._schedule_trade(self.active_contract_type)
@@ -461,10 +487,10 @@ class TradingBot:
             if abs(self.stake - self.config.base_stake) >= 0.001:
                 return
 
-            direction = self._both_direction_for_digit(self.last_digit)
+            direction = self._next_both_direction()
             window = self.both_direction_window
             if direction is None:
-                if self.last_digit == 5:
+                if self.both_generator_digit == 5:
                     self.add_log(
                         "info",
                         "BOTH SIGNAL SKIPPED | generator_digit=5 | result=BREAK_EVEN | no contract placed."
@@ -478,8 +504,8 @@ class TradingBot:
             )
             self.add_log(
                 "info",
-                f"BOTH SIGNAL | generator_digit={self.last_digit} | type={direction} | "
-                f"barrier={self.config.win_predict_digit} | six_hour_window={window + 1} | "
+                f"BOTH SIGNAL | generator_digit={self.both_generator_digit} | type={direction} | "
+                f"barrier={(self.config.both_under_barrier if direction == \"DIGITUNDER\" else self.config.both_over_barrier)} | six_hour_window={window + 1} | "
                 f"mapping={mapping} | inverted={'YES' if inverted else 'NO'} | "
                 f"stake=${self.stake:.2f}"
             )
@@ -523,7 +549,10 @@ class TradingBot:
 
         trade_contract_type = contract_type.upper()
         if self.in_recovery_cycle:
-            trade_prediction = None if trade_contract_type in ("CALL", "PUT") else (self.config.loss_predict_digit if self.recovery_phase == 1 else self.config.recovery_win_predict_digit)
+            if self.config.contract_type_mode.upper() == "BOTH" and trade_contract_type in ("DIGITUNDER", "DIGITOVER"):
+                trade_prediction = self.config.both_under_barrier if trade_contract_type == "DIGITUNDER" else self.config.both_over_barrier
+            else:
+                trade_prediction = None if trade_contract_type in ("CALL", "PUT") else (self.config.loss_predict_digit if self.recovery_phase == 1 else self.config.recovery_win_predict_digit)
             if trade_prediction is not None:
                 self.predict = trade_prediction
         else:
@@ -948,7 +977,7 @@ class TradingBot:
                 self._apply_martingale_after_loss()
                 self.in_recovery_cycle = True
                 self.recovery_phase = 1
-                self.active_contract_type = trade_contract_type
+                self.active_contract_type = None if self.config.contract_type_mode.upper() == "BOTH" else trade_contract_type
                 self.recovery_prediction_active = False
                 self.predict = self.config.loss_predict_digit
                 self.time_duration = self.config.duration
