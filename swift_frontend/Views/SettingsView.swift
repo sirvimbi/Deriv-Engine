@@ -233,8 +233,20 @@ public struct SettingsView: View {
                 dropdownRow("Over Entry Trigger Digit") {
                     IntegerDropdown("Over Entry Trigger Digit", value: $viewModel.config.over_trigger_digit, range: 0...9)
                 }
-                dropdownRow("Digit Contract Barrier (Win)") {
-                    IntegerDropdown("Digit Contract Barrier (Win)", value: $viewModel.config.win_predict_digit, range: viewModel.digitBarrierRange)
+                if viewModel.config.contract_type_mode.uppercased() == "BOTH" {
+                    dropdownRow("BOTH — DigitUNDER Barrier") {
+                        IntegerDropdown("BOTH — DigitUNDER Barrier", value: $viewModel.config.both_under_barrier, range: 1...9)
+                    }
+                    dropdownRow("BOTH — DigitOVER Barrier") {
+                        IntegerDropdown("BOTH — DigitOVER Barrier", value: $viewModel.config.both_over_barrier, range: 0...8)
+                    }
+                    Text("BOTH uses separate barriers. Defaults: UNDER 4 (0-3 wins) and OVER 5 (6-9 wins), keeping the two sides at the same 40% digit probability.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    dropdownRow("Digit Contract Barrier (Win)") {
+                        IntegerDropdown("Digit Contract Barrier (Win)", value: $viewModel.config.win_predict_digit, range: viewModel.digitBarrierRange)
+                    }
                 }
                 dropdownRow("Loss Prediction Digit") {
                     IntegerDropdown("Loss Prediction Digit", value: $viewModel.config.loss_predict_digit, range: viewModel.digitBarrierRange)
@@ -339,6 +351,8 @@ private extension SettingsView {
             "Under Trigger Digit: \(c.under_trigger_digit)",
             "Over Trigger Digit: \(c.over_trigger_digit)",
             "Win Prediction Digit: \(c.win_predict_digit)",
+            "BOTH DigitUNDER Barrier: \(c.both_under_barrier)",
+            "BOTH DigitOVER Barrier: \(c.both_over_barrier)",
             "Loss Prediction Digit: \(c.loss_predict_digit)",
             "Recovery Win Target Prediction Digit: \(c.recovery_win_predict_digit)",
             "Recovery Win Target: \(c.recovery_wins_required)",

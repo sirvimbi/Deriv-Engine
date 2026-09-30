@@ -476,10 +476,15 @@ class TradingBot:
                 "0-4=UNDER, 6-9=OVER" if inverted
                 else "0-4=OVER, 6-9=UNDER"
             )
+            barrier = (
+                self.config.both_under_barrier
+                if direction == "DIGITUNDER"
+                else self.config.both_over_barrier
+            )
             self.add_log(
                 "info",
                 f"BOTH SIGNAL | generator_digit={self.last_digit} | type={direction} | "
-                f"barrier={self.config.win_predict_digit} | six_hour_window={window + 1} | "
+                f"barrier={barrier} | six_hour_window={window + 1} | "
                 f"mapping={mapping} | inverted={'YES' if inverted else 'NO'} | "
                 f"stake=${self.stake:.2f}"
             )
@@ -527,7 +532,12 @@ class TradingBot:
             if trade_prediction is not None:
                 self.predict = trade_prediction
         else:
-            trade_prediction = None if trade_contract_type in ("CALL", "PUT") else int(self.config.win_predict_digit)
+            if self.config.contract_type_mode.upper() == "BOTH" and trade_contract_type == "DIGITUNDER":
+                trade_prediction = int(self.config.both_under_barrier)
+            elif self.config.contract_type_mode.upper() == "BOTH" and trade_contract_type == "DIGITOVER":
+                trade_prediction = int(self.config.both_over_barrier)
+            else:
+                trade_prediction = None if trade_contract_type in ("CALL", "PUT") else int(self.config.win_predict_digit)
             if trade_prediction is not None:
                 self.predict = trade_prediction
         trade_stake = float(self.stake)
