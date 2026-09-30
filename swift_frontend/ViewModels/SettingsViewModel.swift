@@ -9,6 +9,7 @@ public class SettingsViewModel: ObservableObject {
     @Published public var errorMessage: String? = nil
     @Published public var availableSymbols: [DerivSymbol] = []
     @Published public var isSwitchingAccount: Bool = false
+    private var configLoadGeneration = UUID()
 
     public init() {
         loadConfig()
@@ -16,9 +17,13 @@ public class SettingsViewModel: ObservableObject {
     }
 
     public func loadConfig() {
+        let generation = UUID()
+        configLoadGeneration = generation
         Task {
             do {
-                self.config = try await APIService.shared.getConfig()
+                let loadedConfig = try await APIService.shared.getConfig()
+                guard self.configLoadGeneration == generation else { return }
+                self.config = loadedConfig
                 if !self.availableSymbols.isEmpty,
                    let first = self.availableSymbols.first,
                    !self.availableSymbols.contains(where: { $0.symbol == self.config.symbol }) {
@@ -93,6 +98,9 @@ public class SettingsViewModel: ObservableObject {
     }
 
     public func saveConfig() {
+        // Invalidate any in-flight initial config load so it cannot overwrite
+        // the values the user is saving when its response arrives late.
+        configLoadGeneration = UUID()
         Task {
             isSaving = true
             errorMessage = nil
