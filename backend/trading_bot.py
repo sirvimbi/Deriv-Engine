@@ -65,6 +65,7 @@ class TradingBot:
         self.both_generator_digit: Optional[int] = None
         self._both_rng = random.SystemRandom()
         self.stop_reason: Optional[str] = None
+        self._auto_restart_task: Optional[asyncio.Task] = None
         
         self.logs: List[LogMessage] = []
         self.status_broadcast_callback: Optional[Callable] = None
@@ -334,11 +335,27 @@ class TradingBot:
         except Exception:
             pass
         self.add_log("warn", f"Bot stopped: {reason} | Total Profit: ${self.total_profit:.2f} | Runs: {self.runs}")
+        if (reason.startswith("Take Profit limit reached") and self.config.auto_restart_after_take_profit and (self._auto_restart_task is None or self._auto_restart_task.done())):
+            self.add_log("info", "AUTO-RESTART ARMED | Take Profit reached. Bot will restart in 60 seconds.")
+            self._auto_restart_task = asyncio.create_task(self._restart_after_take_profit())
         if self.status_broadcast_callback:
             try:
                 await self.status_broadcast_callback("status", self.get_status().dict())
             except Exception:
                 pass
+
+    async def _restart_after_take_profit(self):
+        """Restart once, 60 seconds after a Take Profit stop when enabled."""
+        try:
+            await asyncio.sleep(60)
+            if self.is_running or not self.config.auto_restart_after_take_profit:
+                return
+            self.add_log("info", "AUTO-RESTART | 60-second Take Profit cooldown complete. Restarting bot.")
+            await self.start()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.add_log("error", f"AUTO-RESTART FAILED | {exc}")
 
     async def _refresh_balance_after_settlement(self):
         """Compatibility hook for settlement callers.
