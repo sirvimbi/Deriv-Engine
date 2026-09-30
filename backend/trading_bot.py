@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 import time
 from decimal import Decimal
 from datetime import datetime
@@ -56,9 +57,10 @@ class TradingBot:
         self.last_tick_pip_size: Optional[int] = None
         self.start_time_epoch = time.time()
         self.session_start_epoch = 0
-        # BOTH mode alternates its digit-to-contract mapping every six hours.
-        # The first window is 0-4 => OVER and 6-9 => UNDER; digit 5 skips.
+        # BOTH mode is anchored to wall-clock six-hour windows, never bot
+        # runtime. The current window gets an independent random orientation.
         self.both_direction_window = 0
+        self.both_direction_anchor_digit: Optional[int] = None
         self.stop_reason: Optional[str] = None
         
         self.logs: List[LogMessage] = []
@@ -172,18 +174,31 @@ class TradingBot:
         self.add_log("info", "Bot strategy configuration updated.")
 
     def _both_direction_for_digit(self, digit: Optional[int]) -> Optional[str]:
-        """Map the live last digit to a BOTH-mode contract direction.
+        """Choose BOTH direction from live digit using wall-clock six-hour windows.
 
-        Window 1 (first six hours): 0-4 => DIGITOVER, 5 => skip, 6-9 => DIGITUNDER.
-        Window 2: the mapping is inverted. This alternates every six hours.
+        The bot start time is deliberately not used. Each six-hour wall-clock
+        window has a deterministic random anchor digit in 0-9. If that anchor
+        is below 6, the window starts with 0-4 => OVER and 6-9 => UNDER.
+        If the anchor is 6-9, that mapping is inverted. The mapping then
+        alternates on every six-hour wall-clock window.
+
+        Digit 5 is always skipped because it is the break-even boundary.
         """
         if digit is None or digit == 5 or not 0 <= int(digit) <= 9:
             return None
 
-        elapsed = max(0.0, time.time() - self.start_time_epoch)
-        window = int(elapsed // (6 * 60 * 60))
+        window = int(time.time() // (6 * 60 * 60))
         self.both_direction_window = window
-        inverted = (window % 2) == 1
+
+        # Seed only from the wall-clock window, so restarting the bot cannot
+        # change the orientation inside the same six-hour period.
+        anchor = random.Random(window).randint(0, 9)
+        self.both_direction_anchor_digit = anchor
+
+        # anchor < 6 selects the normal mapping; anchor >= 6 selects inversion.
+        # Window parity then flips the selected mapping every six hours.
+        selected_inverted = anchor >= 6
+        inverted = selected_inverted ^ ((window % 2) == 1)
 
         if not inverted:
             return "DIGITOVER" if digit <= 4 else "DIGITUNDER"
@@ -274,7 +289,10 @@ class TradingBot:
         self.loss_in_row = 0
         self.current_loss_streak = 0
         self.start_time_epoch = time.time()
-        self.both_direction_window = 0
+        # Do not reset BOTH direction from bot start time. Direction is derived
+        # from the wall-clock six-hour window in _both_direction_for_digit().
+        self.both_direction_window = int(time.time() // (6 * 60 * 60))
+        self.both_direction_anchor_digit = None
         self.stop_reason = None
 
         self.add_log(
