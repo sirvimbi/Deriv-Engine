@@ -505,7 +505,7 @@ class TradingBot:
             self.add_log(
                 "info",
                 f"BOTH SIGNAL | generator_digit={self.both_generator_digit} | type={direction} | "
-                f"barrier={(self.config.both_under_barrier if direction == \"DIGITUNDER\" else self.config.both_over_barrier)} | six_hour_window={window + 1} | "
+                f"barrier={(self.config.both_under_barrier if direction == "DIGITUNDER" else self.config.both_over_barrier)} | six_hour_window={window + 1} | "
                 f"mapping={mapping} | inverted={'YES' if inverted else 'NO'} | "
                 f"stake=${self.stake:.2f}"
             )
