@@ -199,7 +199,7 @@ public struct SettingsView: View {
             }
             Toggle("Auto-start after Take Profit / Stop Loss", isOn: $viewModel.config.auto_restart_after_stop)
                 .toggleStyle(.switch)
-            Text("When enabled, a Take Profit stop starts a fresh bot session automatically after 1 minute. A manual stop or Hard Stop Loss does not trigger auto-restart.")
+            Text("When enabled, a Take Profit or Hard Stop Loss starts a fresh bot session automatically after 1 minute. A manual stop does not trigger auto-restart.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             dropdownRow("Max Runs / Trades") {
