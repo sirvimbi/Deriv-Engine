@@ -43,6 +43,7 @@ public struct TradingConfig: Codable, Equatable {
         martingale: Double = 2.0,
         take_profit: Double = 500.0,
         stop_loss: Double = 500.0,
+        auto_restart_after_stop: Bool = false,
         auto_restart_after_take_profit: Bool = false,
         max_runs: Int = 250,
         max_loss_streak: Int = 4,
