@@ -104,16 +104,20 @@ public class SettingsViewModel: ObservableObject {
             errorMessage = nil
             saveSuccess = false
             do {
+                self.clampDigitBarriersForSelectedMode()
+                
+                let targetAutoRestart = self.config.auto_restart_after_stop
+                self.config.auto_restart_after_stop = targetAutoRestart
+                self.config.auto_restart_after_take_profit = targetAutoRestart
+
                 var pending = self.config
                 pending.contract_type_mode = pending.contract_type_mode.uppercased()
                 if !["DIGITUNDER", "DIGITOVER", "BOTH", "CALL", "PUT", "RISEFALL"].contains(pending.contract_type_mode) {
                     pending.contract_type_mode = "BOTH"
                 }
-                self.clampDigitBarriersForSelectedMode()
-                self.config.auto_restart_after_take_profit = self.config.auto_restart_after_stop
-                pending = self.config
-                pending.contract_type_mode = pending.contract_type_mode.uppercased()
-                self.config = try await APIService.shared.updateConfig(pending)
+
+                let savedConfig = try await APIService.shared.updateConfig(pending)
+                self.config = savedConfig
                 saveSuccess = true
             } catch {
                 self.errorMessage = "Failed to save settings: \(error.localizedDescription)"

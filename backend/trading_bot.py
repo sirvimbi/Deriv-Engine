@@ -168,6 +168,12 @@ class TradingBot:
         if mode not in ("DIGITUNDER", "DIGITOVER", "BOTH"):
             mode = "BOTH"
         new_config.contract_type_mode = mode
+        
+        # Ensure auto_restart fields are synchronized on the bot config
+        auto_restart = bool(new_config.auto_restart_after_stop or new_config.auto_restart_after_take_profit)
+        new_config.auto_restart_after_stop = auto_restart
+        new_config.auto_restart_after_take_profit = auto_restart
+
         self.config = new_config
         self.client.app_id = new_config.app_id
         self.client.account_type = new_config.account_type
@@ -175,7 +181,7 @@ class TradingBot:
             self.stake = new_config.base_stake
             self.predict = new_config.win_predict_digit
             self.time_duration = new_config.duration
-        self.add_log("info", "Bot strategy configuration updated.")
+        self.add_log("info", f"Bot strategy configuration updated | Auto-restart={auto_restart}")
 
     def _both_direction_for_digit(self, digit: Optional[int]) -> Optional[str]:
         """Map a generated 0-9 digit to BOTH contract direction.

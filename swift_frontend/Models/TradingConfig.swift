@@ -163,8 +163,11 @@ public struct TradingConfig: Codable, Equatable {
         martingale = try c.decodeIfPresent(Double.self, forKey: .martingale) ?? 2.0
         take_profit = try c.decodeIfPresent(Double.self, forKey: .take_profit) ?? 500.0
         stop_loss = min(max(try c.decodeIfPresent(Double.self, forKey: .stop_loss) ?? 500.0, 0), 500)
-        auto_restart_after_stop = try c.decodeIfPresent(Bool.self, forKey: .auto_restart_after_stop) ?? (try c.decodeIfPresent(Bool.self, forKey: .auto_restart_after_take_profit) ?? false)
-        auto_restart_after_take_profit = auto_restart_after_stop
+        let autoStop = try c.decodeIfPresent(Bool.self, forKey: .auto_restart_after_stop)
+        let autoTP = try c.decodeIfPresent(Bool.self, forKey: .auto_restart_after_take_profit)
+        let resolvedAutoRestart = (autoStop == true) || (autoTP == true)
+        auto_restart_after_stop = resolvedAutoRestart
+        auto_restart_after_take_profit = resolvedAutoRestart
         max_runs = try c.decodeIfPresent(Int.self, forKey: .max_runs) ?? 250
         max_loss_streak = try c.decodeIfPresent(Int.self, forKey: .max_loss_streak) ?? 4
         under_trigger_digit = try c.decodeIfPresent(Int.self, forKey: .under_trigger_digit) ?? 2
