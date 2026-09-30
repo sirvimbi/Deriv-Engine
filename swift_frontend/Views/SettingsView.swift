@@ -172,7 +172,7 @@ public struct SettingsView: View {
             if viewModel.config.martingale_enabled {
                 dropdownRow("Martingale Multiplier") {
                     HStack(spacing: 10) {
-                        DoubleDropdown("Martingale Multiplier", value: $viewModel.config.martingale, range: 0.1...50, step: 0.1)
+                        DoubleDropdown("Martingale Multiplier", value: $viewModel.config.martingale, range: 0...50, step: 0.1)
                         Text(String(format: "%.1fx", viewModel.config.martingale))
                             .font(.system(size: 12, weight: .semibold, design: .monospaced))
                             .foregroundStyle(.secondary)
