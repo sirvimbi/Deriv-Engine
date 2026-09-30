@@ -1096,9 +1096,9 @@ class TradingBot:
             self.add_log("info", "RECOVERY COOLDOWN STARTED | 5.0s after loss before next recovery trade.")
 
         # Check stopping criteria
-        if self.total_profit >= self.config.take_profit:
+        if self.config.take_profit > 0 and self.total_profit >= self.config.take_profit:
             await self.stop(f"Take Profit limit reached (+${self.total_profit:.2f} >= ${self.config.take_profit:.2f})")
-        elif self.total_profit <= -self.config.stop_loss:
+        elif self.config.stop_loss > 0 and self.total_profit <= -self.config.stop_loss:
             await self.stop(f"Stop Loss limit reached (${self.total_profit:.2f} <= -${self.config.stop_loss:.2f})")
         elif self.runs >= self.config.max_runs:
             await self.stop(f"Max runs limit reached ({self.runs} >= {self.config.max_runs})")
