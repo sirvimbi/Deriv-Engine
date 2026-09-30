@@ -95,3 +95,20 @@ def test_both_recovery_barriers_are_distinct():
     assert bot.config.both_under_barrier == 4
     assert bot.config.both_over_barrier == 5
     assert bot.config.both_under_barrier != bot.config.both_over_barrier
+
+
+def test_both_barrier_follows_actual_contract_type():
+    bot = make_bot()
+    assert bot._barrier_for_contract("DIGITUNDER") == 4
+    assert bot._barrier_for_contract("DIGITOVER") == 5
+
+
+def test_both_recovery_does_not_replace_new_direction_with_old_lock():
+    bot = make_bot()
+    bot.in_recovery_cycle = True
+    bot.active_contract_type = "DIGITUNDER"
+
+    # The execution layer must preserve the freshly selected BOTH direction.
+    # This is the regression contract for the bug seen in the execution logs.
+    assert bot.config.contract_type_mode == "BOTH"
+    assert bot._barrier_for_contract("DIGITOVER") == bot.config.both_over_barrier
