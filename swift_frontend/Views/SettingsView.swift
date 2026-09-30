@@ -356,7 +356,7 @@ private extension SettingsView {
             "",
             "Take Profit: $\(c.take_profit)",
             "Hard Stop Loss: $\(c.stop_loss)",
-            "Auto-start after Take Profit: \(c.auto_restart_after_take_profit ? "ON (1 minute)" : "OFF")",
+            "Auto-start after Take Profit / Stop Loss: \(c.auto_restart_after_stop ? "ON (1 minute)" : "OFF")",
             "Max Runs / Trades: \(c.max_runs)",
             "Max Loss Streak: \(c.max_loss_streak)",
             "",
