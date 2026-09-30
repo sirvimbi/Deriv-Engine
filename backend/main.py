@@ -45,7 +45,6 @@ def _normalized_config(config: TradingConfig, fallback_both_seed: str = "") -> T
     data["account_type"] = account_type if account_type in ("demo", "real") else "demo"
 
     # Canonicalize the auto-restart toggle and keep the legacy field synchronized.
-    # This prevents older persisted configs/clients from silently forcing the UI OFF.
     auto_restart = bool(data.get("auto_restart_after_stop", False) or data.get("auto_restart_after_take_profit", False))
     data["auto_restart_after_stop"] = auto_restart
     data["auto_restart_after_take_profit"] = auto_restart
