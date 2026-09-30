@@ -535,6 +535,17 @@ class TradingBot:
         self.is_trade_in_progress = True
         asyncio.create_task(self._place_trade(contract_type))
 
+    def _barrier_for_contract(self, contract_type: str) -> Optional[int]:
+        """Return the barrier belonging to the actual contract type."""
+        contract_type = contract_type.upper()
+        if contract_type == "DIGITUNDER":
+            return int(self.config.both_under_barrier) if self.config.contract_type_mode.upper() == "BOTH" else int(self.config.win_predict_digit)
+        if contract_type == "DIGITOVER":
+            return int(self.config.both_over_barrier) if self.config.contract_type_mode.upper() == "BOTH" else int(self.config.win_predict_digit)
+        if contract_type in ("CALL", "PUT"):
+            return None
+        return int(self.config.win_predict_digit)
+
     async def _place_trade(self, contract_type: str):
         if not self.is_running:
             self.is_trade_in_progress = False
@@ -572,13 +583,9 @@ class TradingBot:
                 self.config.contract_type_mode.upper() == "BOTH"
                 and trade_contract_type in ("DIGITUNDER", "DIGITOVER")
             ):
-                trade_prediction = (
-                    self.config.both_under_barrier
-                    if trade_contract_type == "DIGITUNDER"
-                    else self.config.both_over_barrier
-                )
+                trade_prediction = self._barrier_for_contract(trade_contract_type)
             else:
-                trade_prediction = None if trade_contract_type in ("CALL", "PUT") else int(self.config.win_predict_digit)
+                trade_prediction = self._barrier_for_contract(trade_contract_type)
             if trade_prediction is not None:
                 self.predict = trade_prediction
         trade_stake = float(self.stake)
