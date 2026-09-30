@@ -335,7 +335,7 @@ class TradingBot:
         except Exception:
             pass
         self.add_log("warn", f"Bot stopped: {reason} | Total Profit: ${self.total_profit:.2f} | Runs: {self.runs}")
-        if (reason.startswith("Take Profit limit reached") and self.config.auto_restart_after_take_profit and (self._auto_restart_task is None or self._auto_restart_task.done())):
+        if (reason.startswith(("Take Profit limit reached", "Stop Loss limit reached")) and self.config.auto_restart_after_stop and (self._auto_restart_task is None or self._auto_restart_task.done())):
             self.add_log("info", "AUTO-RESTART ARMED | Take Profit reached. Bot will restart in 60 seconds.")
             self._auto_restart_task = asyncio.create_task(self._restart_after_take_profit())
         if self.status_broadcast_callback:
