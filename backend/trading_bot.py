@@ -350,7 +350,7 @@ class TradingBot:
             await asyncio.sleep(60)
             if self.is_running or not self.config.auto_restart_after_stop:
                 return
-            self.add_log("info", "AUTO-RESTART | 60-second Take Profit cooldown complete. Restarting bot.")
+            self.add_log("info", "AUTO-RESTART | 60-second stop cooldown complete. Restarting bot.")
             await self.start()
         except asyncio.CancelledError:
             raise
