@@ -448,7 +448,7 @@ class TradingBot:
                     f"type={direction} | barrier={barrier} | recovery_phase={self.recovery_phase} | "
                     f"six_hour_window={self.both_direction_window + 1} | "
                     f"inverted={'YES' if self.both_direction_window % 2 else 'NO'} | "
-                    f"stake=\${self.stake:.2f}"
+                    f"stake=${self.stake:.2f}"
                 )
                 self._schedule_trade(direction)
                 return
@@ -490,7 +490,7 @@ class TradingBot:
             direction = self._next_both_direction()
             window = self.both_direction_window
             if direction is None:
-                if self.last_digit == 5:
+                if self.both_generator_digit == 5:
                     self.add_log(
                         "info",
                         "BOTH SIGNAL SKIPPED | generator_digit=5 | result=BREAK_EVEN | no contract placed."
@@ -504,8 +504,8 @@ class TradingBot:
             )
             self.add_log(
                 "info",
-                f"BOTH SIGNAL | generator_digit={self.last_digit} | type={direction} | "
-                f"barrier={self.config.win_predict_digit} | six_hour_window={window + 1} | "
+                f"BOTH SIGNAL | generator_digit={self.both_generator_digit} | type={direction} | "
+                f"barrier={(self.config.both_under_barrier if direction == \"DIGITUNDER\" else self.config.both_over_barrier)} | six_hour_window={window + 1} | "
                 f"mapping={mapping} | inverted={'YES' if inverted else 'NO'} | "
                 f"stake=${self.stake:.2f}"
             )
