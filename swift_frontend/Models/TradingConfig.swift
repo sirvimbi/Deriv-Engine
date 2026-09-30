@@ -10,6 +10,7 @@ public struct TradingConfig: Codable, Equatable {
     public var martingale: Double
     public var take_profit: Double
     public var stop_loss: Double
+    public var auto_restart_after_stop: Bool
     public var auto_restart_after_take_profit: Bool
     public var max_runs: Int
     public var max_loss_streak: Int
@@ -42,6 +43,7 @@ public struct TradingConfig: Codable, Equatable {
         martingale: Double = 2.0,
         take_profit: Double = 500.0,
         stop_loss: Double = 500.0,
+        auto_restart_after_stop: Bool = false,
         auto_restart_after_take_profit: Bool = false,
         max_runs: Int = 250,
         max_loss_streak: Int = 4,
@@ -71,6 +73,7 @@ public struct TradingConfig: Codable, Equatable {
         self.martingale = martingale
         self.take_profit = take_profit
         self.stop_loss = stop_loss
+        self.auto_restart_after_stop = auto_restart_after_stop
         self.auto_restart_after_take_profit = auto_restart_after_take_profit
         self.max_runs = max_runs
         self.max_loss_streak = max_loss_streak
@@ -109,7 +112,8 @@ public struct TradingConfig: Codable, Equatable {
         martingale = try c.decodeIfPresent(Double.self, forKey: .martingale) ?? 2.0
         take_profit = try c.decodeIfPresent(Double.self, forKey: .take_profit) ?? 500.0
         stop_loss = min(max(try c.decodeIfPresent(Double.self, forKey: .stop_loss) ?? 500.0, 0), 500)
-        auto_restart_after_take_profit = try c.decodeIfPresent(Bool.self, forKey: .auto_restart_after_take_profit) ?? false
+        auto_restart_after_stop = try c.decodeIfPresent(Bool.self, forKey: .auto_restart_after_stop) ?? (try c.decodeIfPresent(Bool.self, forKey: .auto_restart_after_take_profit) ?? false)
+        auto_restart_after_take_profit = auto_restart_after_stop
         max_runs = try c.decodeIfPresent(Int.self, forKey: .max_runs) ?? 250
         max_loss_streak = try c.decodeIfPresent(Int.self, forKey: .max_loss_streak) ?? 4
         under_trigger_digit = try c.decodeIfPresent(Int.self, forKey: .under_trigger_digit) ?? 2

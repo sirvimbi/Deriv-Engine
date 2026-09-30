@@ -197,9 +197,9 @@ public struct SettingsView: View {
             dropdownRow("Hard Stop Loss ($)") {
                 DecimalAmountDropdown("Hard Stop Loss", value: $viewModel.config.stop_loss, range: 0...500)
             }
-            Toggle("Auto-start after Take Profit", isOn: $viewModel.config.auto_restart_after_take_profit)
+            Toggle("Auto-start after Take Profit / Stop Loss", isOn: $viewModel.config.auto_restart_after_stop)
                 .toggleStyle(.switch)
-            Text("When enabled, a Take Profit stop starts a fresh bot session automatically after 1 minute. A manual stop or Hard Stop Loss does not trigger auto-restart.")
+            Text("When enabled, a Take Profit or Hard Stop Loss starts a fresh bot session automatically after 1 minute. A manual stop does not trigger auto-restart.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             dropdownRow("Max Runs / Trades") {
@@ -356,7 +356,7 @@ private extension SettingsView {
             "",
             "Take Profit: $\(c.take_profit)",
             "Hard Stop Loss: $\(c.stop_loss)",
-            "Auto-start after Take Profit: \(c.auto_restart_after_take_profit ? "ON (1 minute)" : "OFF")",
+            "Auto-start after Take Profit / Stop Loss: \(c.auto_restart_after_stop ? "ON (1 minute)" : "OFF")",
             "Max Runs / Trades: \(c.max_runs)",
             "Max Loss Streak: \(c.max_loss_streak)",
             "",
