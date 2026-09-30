@@ -61,6 +61,8 @@ class TradingBot:
         # runtime. The current window gets an independent random orientation.
         self.both_direction_window = 0
         self.both_direction_anchor_digit: Optional[int] = None
+        self.both_generator_digit: Optional[int] = None
+        self._both_rng = random.SystemRandom()
         self.stop_reason: Optional[str] = None
         
         self.logs: List[LogMessage] = []
@@ -174,35 +176,29 @@ class TradingBot:
         self.add_log("info", "Bot strategy configuration updated.")
 
     def _both_direction_for_digit(self, digit: Optional[int]) -> Optional[str]:
-        """Choose BOTH direction from live digit using wall-clock six-hour windows.
+        """Map a generated 0-9 digit to BOTH contract direction.
 
-        The bot start time is deliberately not used. Each six-hour wall-clock
-        window has a deterministic random anchor digit in 0-9. If that anchor
-        is below 6, the window starts with 0-4 => OVER and 6-9 => UNDER.
-        If the anchor is 6-9, that mapping is inverted. The mapping then
-        alternates on every six-hour wall-clock window.
-
-        Digit 5 is always skipped because it is the break-even boundary.
+        Normal six-hour window: 0-4 -> OVER, 5 -> skip, 6-9 -> UNDER.
+        Every six-hour wall-clock window the mapping is inverted.
+        The generated digit is independent of the market quote and uses
+        SystemRandom, matching the requested random.randint(0, 9) behavior.
         """
         if digit is None or digit == 5 or not 0 <= int(digit) <= 9:
             return None
 
         window = int(time.time() // (6 * 60 * 60))
         self.both_direction_window = window
-
-        # Seed only from the wall-clock window, so restarting the bot cannot
-        # change the orientation inside the same six-hour period.
-        anchor = random.Random(window).randint(0, 9)
-        self.both_direction_anchor_digit = anchor
-
-        # anchor < 6 selects the normal mapping; anchor >= 6 selects inversion.
-        # Window parity then flips the selected mapping every six hours.
-        selected_inverted = anchor >= 6
-        inverted = selected_inverted ^ ((window % 2) == 1)
+        inverted = (window % 2) == 1
 
         if not inverted:
             return "DIGITOVER" if digit <= 4 else "DIGITUNDER"
         return "DIGITUNDER" if digit <= 4 else "DIGITOVER"
+
+    def _next_both_direction(self) -> Optional[str]:
+        """Generate a fresh 0-9 decision digit for BOTH mode."""
+        digit = self._both_rng.randint(0, 9)
+        self.both_generator_digit = digit
+        return self._both_direction_for_digit(digit)
 
     def _apply_martingale_after_loss(self):
         """Apply Martingale only when its multiplier is explicitly enabled.
