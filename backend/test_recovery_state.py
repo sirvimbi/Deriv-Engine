@@ -17,6 +17,7 @@ class RecoveryStateTests(unittest.IsolatedAsyncioTestCase):
         config = TradingConfig(
             base_stake=5.0,
             max_stake=500.0,
+            martingale_enabled=True,
             martingale=2.5,
             recovery_wins_required=2,
             win_predict_digit=8,

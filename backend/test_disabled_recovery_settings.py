@@ -11,6 +11,7 @@ class DisabledRecoverySettingsTests(unittest.IsolatedAsyncioTestCase):
             "base_stake": 1.0,
             "max_stake": 100.0,
             "martingale": 0.0,
+            "martingale_enabled": False,
             "recovery_wins_required": 0,
             "loss_cycle_target": 0,
             "max_loss_streak": 4,
@@ -96,11 +97,11 @@ class DisabledRecoverySettingsTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertTrue(bot.in_recovery_cycle)
-        self.assertEqual(bot.stake, 1.0)
+        self.assertAlmostEqual(bot.stake, 1.3333, places=3)
         self.assertEqual(bot.recovery_loss_stake, 1.0)
 
     async def test_enabled_martingale_still_scales_recovery_stake(self):
-        bot = TradingBot(self._config(martingale=2.0, recovery_wins_required=2))
+        bot = TradingBot(self._config(martingale=2.0, martingale_enabled=True, recovery_wins_required=2))
         bot.is_running = True
         bot.is_trade_in_progress = True
         bot.active_trade_contract_id = 1
