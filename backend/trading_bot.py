@@ -477,6 +477,22 @@ class TradingBot:
         if self.is_trade_in_progress:
             return
 
+        # A configured post-loss cooldown applies to every subsequent trade,
+        # including normal/base-stake entries when no recovery cycle is active.
+        remaining_cooldown = self.recovery_cooldown_until - time.monotonic()
+        if remaining_cooldown > 0:
+            if not self._recovery_cooldown_logged:
+                self._recovery_cooldown_logged = True
+                self.add_log(
+                    "info",
+                    f"LOSS COOLDOWN | waiting {remaining_cooldown:.1f}s after loss before next trade."
+                )
+            return
+        if self._recovery_cooldown_logged:
+            self._recovery_cooldown_logged = False
+            self.recovery_cooldown_until = 0.0
+            self.add_log("info", "LOSS COOLDOWN COMPLETE | trading re-armed.")
+
         # Recovery state is authoritative. Do not use stake > base_stake
         # as the recovery test: max_stake can clamp recovery to base_stake.
         if self.in_recovery_cycle:
@@ -603,26 +619,30 @@ class TradingBot:
         self.is_trade_in_progress = True
         asyncio.create_task(self._place_trade(contract_type))
 
-    async def _schedule_recovery_after_settlement(self):
-        """Re-arm recovery after the configured post-loss cooldown."""
+    def _set_loss_cooldown(self):
+        """Start the configured cooldown after every losing trade."""
         cooldown_seconds = (
             max(0, int(self.config.loss_cooldown_hours)) * 3600
             + max(0, int(self.config.loss_cooldown_minutes)) * 60
             + max(0, int(self.config.loss_cooldown_seconds))
         )
-        self.recovery_cooldown_until = time.time() + cooldown_seconds
+        self.recovery_cooldown_until = (
+            time.monotonic() + cooldown_seconds if cooldown_seconds > 0 else 0.0
+        )
         self._recovery_cooldown_logged = False
-
         if cooldown_seconds > 0:
             hours, remainder = divmod(cooldown_seconds, 3600)
             minutes, seconds = divmod(remainder, 60)
             self.add_log(
                 "info",
-                f"LOSS COOLDOWN STARTED | {hours:02d}:{minutes:02d}:{seconds:02d} "
-                f"after loss before next recovery trade."
+                f"LOSS COOLDOWN STARTED | {hours:02d}:{minutes:02d}:{seconds:02d} after loss before next trade."
             )
-            self._recovery_cooldown_logged = True
-            await asyncio.sleep(cooldown_seconds)
+
+    async def _schedule_recovery_after_settlement(self):
+        """Guarantee a recovery trade is re-armed after the configured loss cooldown."""
+        remaining = max(0.0, self.recovery_cooldown_until - time.monotonic())
+        if remaining > 0:
+            await asyncio.sleep(remaining)
         else:
             await asyncio.sleep(0.05)
 
@@ -1114,6 +1134,7 @@ class TradingBot:
                 self.lowest_loss = profit
 
             self.loss_streak += 1
+            self._set_loss_cooldown()
             self.add_log("error", f"Trade LOST! -${abs(profit):.2f} | Loss Streak: {self.loss_streak} | Total Profit: ${self.total_profit:.2f}")
 
             # Recovery win counter resets on a loss, while the loss-cycle
