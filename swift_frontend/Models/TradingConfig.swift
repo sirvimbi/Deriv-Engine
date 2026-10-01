@@ -14,6 +14,9 @@ public struct TradingConfig: Codable, Equatable {
     public var auto_restart_after_take_profit: Bool
     public var max_runs: Int
     public var max_loss_streak: Int
+    public var loss_cooldown_hours: Int
+    public var loss_cooldown_minutes: Int
+    public var loss_cooldown_seconds: Int
     public var under_trigger_digit: Int
     public var over_trigger_digit: Int
     public var win_predict_digit: Int
@@ -47,6 +50,9 @@ public struct TradingConfig: Codable, Equatable {
         auto_restart_after_take_profit: Bool = false,
         max_runs: Int = 250,
         max_loss_streak: Int = 4,
+        loss_cooldown_hours: Int = 0,
+        loss_cooldown_minutes: Int = 0,
+        loss_cooldown_seconds: Int = 0,
         under_trigger_digit: Int = 2,
         over_trigger_digit: Int = 8,
         win_predict_digit: Int = 8,
@@ -77,6 +83,9 @@ public struct TradingConfig: Codable, Equatable {
         self.auto_restart_after_take_profit = auto_restart_after_take_profit
         self.max_runs = max_runs
         self.max_loss_streak = max_loss_streak
+        self.loss_cooldown_hours = loss_cooldown_hours
+        self.loss_cooldown_minutes = loss_cooldown_minutes
+        self.loss_cooldown_seconds = loss_cooldown_seconds
         self.under_trigger_digit = under_trigger_digit
         self.over_trigger_digit = over_trigger_digit
         self.win_predict_digit = win_predict_digit
@@ -99,7 +108,8 @@ public struct TradingConfig: Codable, Equatable {
         case api_token, app_id, symbol, base_stake, max_stake
         case martingale_enabled, martingale, take_profit, stop_loss
         case auto_restart_after_stop, auto_restart_after_take_profit
-        case max_runs, max_loss_streak, under_trigger_digit, over_trigger_digit
+        case max_runs, max_loss_streak, loss_cooldown_hours, loss_cooldown_minutes, loss_cooldown_seconds
+        case under_trigger_digit, over_trigger_digit
         case win_predict_digit, both_under_barrier, both_over_barrier
         case both_inverse_enabled, both_inverse_interval_hours
         case loss_predict_digit, recovery_win_predict_digit
@@ -128,6 +138,9 @@ public struct TradingConfig: Codable, Equatable {
 
         try c.encode(max_runs, forKey: .max_runs)
         try c.encode(max_loss_streak, forKey: .max_loss_streak)
+        try c.encode(loss_cooldown_hours, forKey: .loss_cooldown_hours)
+        try c.encode(loss_cooldown_minutes, forKey: .loss_cooldown_minutes)
+        try c.encode(loss_cooldown_seconds, forKey: .loss_cooldown_seconds)
         try c.encode(under_trigger_digit, forKey: .under_trigger_digit)
         try c.encode(over_trigger_digit, forKey: .over_trigger_digit)
         try c.encode(win_predict_digit, forKey: .win_predict_digit)
@@ -170,6 +183,9 @@ public struct TradingConfig: Codable, Equatable {
         auto_restart_after_take_profit = resolvedAutoRestart
         max_runs = try c.decodeIfPresent(Int.self, forKey: .max_runs) ?? 250
         max_loss_streak = try c.decodeIfPresent(Int.self, forKey: .max_loss_streak) ?? 4
+        loss_cooldown_hours = min(max(try c.decodeIfPresent(Int.self, forKey: .loss_cooldown_hours) ?? 0, 0), 24)
+        loss_cooldown_minutes = min(max(try c.decodeIfPresent(Int.self, forKey: .loss_cooldown_minutes) ?? 0, 0), 59)
+        loss_cooldown_seconds = min(max(try c.decodeIfPresent(Int.self, forKey: .loss_cooldown_seconds) ?? 0, 0), 59)
         under_trigger_digit = try c.decodeIfPresent(Int.self, forKey: .under_trigger_digit) ?? 2
         over_trigger_digit = try c.decodeIfPresent(Int.self, forKey: .over_trigger_digit) ?? 8
         win_predict_digit = try c.decodeIfPresent(Int.self, forKey: .win_predict_digit) ?? 8

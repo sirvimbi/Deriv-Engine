@@ -256,3 +256,29 @@ def test_loss_cycle_target_is_profit_based_not_stake_division():
     # The trade stake can be $25, but the required profit is $5 per remaining
     # cycle win. A low payout must therefore resize upward, never downward.
     assert bot.recovery_loss_stake / 2 == 5.0
+
+
+def test_configurable_loss_cooldown_uses_hours_minutes_seconds():
+    bot = make_bot(
+        loss_cooldown_hours=1,
+        loss_cooldown_minutes=2,
+        loss_cooldown_seconds=3,
+    )
+
+    start = time.monotonic()
+    bot._set_loss_cooldown()
+    remaining = bot.recovery_cooldown_until - start
+
+    assert 3725.0 <= remaining <= 3726.0
+
+
+def test_zero_loss_cooldown_disables_post_loss_delay():
+    bot = make_bot(
+        loss_cooldown_hours=0,
+        loss_cooldown_minutes=0,
+        loss_cooldown_seconds=0,
+    )
+
+    bot._set_loss_cooldown()
+
+    assert bot.recovery_cooldown_until == 0.0

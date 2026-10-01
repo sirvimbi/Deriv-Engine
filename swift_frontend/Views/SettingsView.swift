@@ -208,6 +208,25 @@ public struct SettingsView: View {
             dropdownRow("Max Loss Streak") {
                 IntegerDropdown("Max Loss Streak", value: $viewModel.config.max_loss_streak, range: 0...50)
             }
+            dropdownRow("Cooldown After Loss") {
+                HStack(spacing: 8) {
+                    IntegerDropdown("Cooldown Hours", value: $viewModel.config.loss_cooldown_hours, range: 0...24)
+                    Text("hr")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    IntegerDropdown("Cooldown Minutes", value: $viewModel.config.loss_cooldown_minutes, range: 0...59)
+                    Text("min")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    IntegerDropdown("Cooldown Seconds", value: $viewModel.config.loss_cooldown_seconds, range: 0...59)
+                    Text("sec")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text("After every loss, the bot waits for the configured duration before allowing the next trade. Set 00 hr, 00 min, 00 sec to disable the cooldown.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -359,6 +378,7 @@ private extension SettingsView {
             "Auto-start after Take Profit / Stop Loss: \(c.auto_restart_after_stop ? "ON (1 minute)" : "OFF")",
             "Max Runs / Trades: \(c.max_runs)",
             "Max Loss Streak: \(c.max_loss_streak)",
+            String(format: "Cooldown After Loss: %02d:%02d:%02d", c.loss_cooldown_hours, c.loss_cooldown_minutes, c.loss_cooldown_seconds),
             "",
             "Under Trigger Digit: \(c.under_trigger_digit)",
             "Over Trigger Digit: \(c.over_trigger_digit)",
