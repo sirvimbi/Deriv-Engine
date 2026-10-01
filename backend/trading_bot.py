@@ -1016,6 +1016,7 @@ class TradingBot:
                         self.recovery_loss_stake = 0.0
                         self.stake = self.config.base_stake
                         self.recovery_win_count = 0
+                        self.martingale_executions_remaining = 0
                         self.in_recovery_cycle = False
                         self.recovery_phase = 0
                         self.recovery_prediction_active = False
@@ -1072,6 +1073,7 @@ class TradingBot:
                 self.stake = self.config.base_stake
                 self.recovery_win_count = 0
                 self.recovery_loss_stake = 0.0
+                self.martingale_executions_remaining = 0
                 self.recovery_prediction_active = False
                 self.recovery_phase = 0
                 self.active_contract_type = None
