@@ -603,6 +603,21 @@ class TradingBot:
         self.is_trade_in_progress = True
         asyncio.create_task(self._place_trade(contract_type))
 
+    async def _schedule_recovery_after_settlement(self):
+        """Guarantee a recovery trade is re-armed after settlement without waiting for a tick."""
+        await asyncio.sleep(0.05)
+        if not self.is_running or not self.in_recovery_cycle or self.is_trade_in_progress:
+            return
+        mode = self.config.contract_type_mode.upper()
+        if mode == "BOTH":
+            direction = self._next_both_direction()
+            if direction is None:
+                return
+            self._schedule_trade(direction)
+            return
+        if self.active_contract_type:
+            self._schedule_trade(self.active_contract_type)
+
     def _barrier_for_contract(self, contract_type: str) -> Optional[int]:
         """Return the barrier belonging to the actual contract type."""
         contract_type = contract_type.upper()
@@ -1110,16 +1125,16 @@ class TradingBot:
                 self.loss_streak = 0
                 self.add_log("warn", f"Max loss streak threshold ({self.config.max_loss_streak}) hit! Resetting stake to base: ${self.stake:.2f}")
             else:
-                # Compose the next stake from the fixed base Martingale
-                # component plus the loss-cycle recovery component.
-                self.stake = self._next_recovery_stake()
-
                 # A recovery cycle is required whenever either recovery target
                 # is enabled. Loss-cycle recovery is financial and continues
                 # until its outstanding loss is actually recovered.
                 target_wins = max(self.config.recovery_wins_required, self.config.loss_cycle_target)
 
                 if target_wins > 0:
+                    self.in_recovery_cycle = True
+                    # Compose the next stake only after recovery has been armed;
+                    # otherwise _next_recovery_stake() correctly returns base stake.
+                    self.stake = self._next_recovery_stake()
                     self.in_recovery_cycle = True
                     self.recovery_phase = 1
                     self.active_contract_type = trade_contract_type
@@ -1175,6 +1190,12 @@ class TradingBot:
                 await self.status_broadcast_callback("history_refresh", {"reason": "contract_finished"})
             except Exception:
                 pass
+
+        # The contract callback runs inside Deriv's listener. Re-arm recovery
+        # in a separate task so the listener is never blocked waiting for the
+        # next trade, and do not depend on another market tick arriving.
+        if self.is_running and self.in_recovery_cycle and not self.is_trade_in_progress:
+            asyncio.create_task(self._schedule_recovery_after_settlement())
 
     def get_status(self) -> BotStatus:
         win_rate = (self.total_wins / self.runs * 100.0) if self.runs > 0 else 0.0
