@@ -145,3 +145,89 @@ def test_both_recovery_does_not_replace_new_direction_with_old_lock():
     # This is the regression contract for the bug seen in the execution logs.
     assert bot.config.contract_type_mode == "BOTH"
     assert bot._barrier_for_contract("DIGITOVER") == bot.config.both_over_barrier
+
+
+def test_martingale_is_fixed_base_multiplier_not_compounded():
+    bot = make_bot(martingale_enabled=True, martingale=2.0, base_stake=10.0)
+    bot.in_recovery_cycle = True
+    bot.martingale_executions_remaining = 3
+    bot.recovery_win_count = 0
+    assert bot._next_recovery_stake() == 20.0
+
+    bot.martingale_executions_remaining = 2
+    assert bot._next_recovery_stake() == 20.0
+
+    bot.martingale_executions_remaining = 1
+    assert bot._next_recovery_stake() == 20.0
+
+
+def test_martingale_target_zero_means_single_next_execution():
+    bot = make_bot(martingale_enabled=True, martingale=2.0, base_stake=10.0)
+    bot.in_recovery_cycle = True
+    bot.martingale_executions_remaining = 1
+    assert bot._next_recovery_stake() == 20.0
+
+    bot.martingale_executions_remaining = 0
+    assert bot._next_recovery_stake() == 10.0
+
+
+def test_disabled_martingale_keeps_base_stake():
+    bot = make_bot(martingale_enabled=False, martingale=2.0, base_stake=10.0)
+    bot.in_recovery_cycle = True
+    bot.martingale_executions_remaining = 3
+    assert bot._next_recovery_stake() == 10.0
+
+
+def test_loss_cycle_adds_recovery_component_to_martingale_stake():
+    bot = make_bot(
+        martingale_enabled=True,
+        martingale=2.0,
+        base_stake=10.0,
+        recovery_wins_required=3,
+        loss_cycle_target=2,
+    )
+    bot.in_recovery_cycle = True
+    bot.martingale_executions_remaining = 3
+    bot.recovery_loss_stake = 10.0
+    bot.recovery_win_count = 0
+
+    # 2x base Martingale ($20) + $10 outstanding loss / 2 remaining wins = $25.
+    assert bot._next_recovery_stake() == 25.0
+
+    bot.recovery_win_count = 1
+    bot.recovery_loss_stake = 4.0
+    # After one recovery win, the remaining loss must still be recovered.
+    assert bot._next_recovery_stake() == 24.0
+
+
+def test_loss_cycle_without_martingale_still_recovers_financial_loss():
+    bot = make_bot(
+        martingale_enabled=False,
+        martingale=2.0,
+        base_stake=10.0,
+        recovery_wins_required=0,
+        loss_cycle_target=2,
+    )
+    bot.in_recovery_cycle = True
+    bot.martingale_executions_remaining = 0
+    bot.recovery_loss_stake = 10.0
+    bot.recovery_win_count = 0
+    assert bot._next_recovery_stake() == 15.0
+
+
+def test_loss_cycle_target_is_profit_based_not_stake_division():
+    bot = make_bot(
+        martingale_enabled=True,
+        martingale=2.0,
+        base_stake=10.0,
+        recovery_wins_required=3,
+        loss_cycle_target=2,
+    )
+    bot.in_recovery_cycle = True
+    bot.martingale_executions_remaining = 3
+    bot.recovery_loss_stake = 10.0
+    bot.recovery_win_count = 0
+
+    # The trade stake can be $25, but the required profit is $5 per remaining
+    # cycle win. A low payout must therefore resize upward, never downward.
+    assert bot.recovery_loss_stake / 2 == 5.0
