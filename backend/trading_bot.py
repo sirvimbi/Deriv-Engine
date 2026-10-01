@@ -69,6 +69,7 @@ class TradingBot:
         self._both_rng = random.SystemRandom()
         self.stop_reason: Optional[str] = None
         self._auto_restart_task: Optional[asyncio.Task] = None
+        self._recovery_cooldown_task: Optional[asyncio.Task] = None
         
         self.logs: List[LogMessage] = []
         self.status_broadcast_callback: Optional[Callable] = None
@@ -177,9 +178,31 @@ class TradingBot:
         new_config.auto_restart_after_stop = auto_restart
         new_config.auto_restart_after_take_profit = auto_restart
 
+        was_cooling_down = self.is_running and self.recovery_cooldown_until > time.monotonic()
         self.config = new_config
         self.client.app_id = new_config.app_id
         self.client.account_type = new_config.account_type
+
+        if was_cooling_down:
+            cooldown_seconds = self._configured_loss_cooldown_seconds()
+            self.recovery_cooldown_until = (
+                time.monotonic() + cooldown_seconds if cooldown_seconds > 0 else 0.0
+            )
+            self._recovery_cooldown_logged = False
+            if self._recovery_cooldown_task and not self._recovery_cooldown_task.done():
+                self._recovery_cooldown_task.cancel()
+                self._recovery_cooldown_task = None
+            if cooldown_seconds > 0:
+                self.add_log(
+                    "info",
+                    f"LOSS COOLDOWN UPDATED | interval={cooldown_seconds}s | applied immediately."
+                )
+                if self.in_recovery_cycle:
+                    self._recovery_cooldown_task = asyncio.create_task(
+                        self._schedule_recovery_after_settlement()
+                    )
+            else:
+                self.add_log("info", "LOSS COOLDOWN DISABLED | trading re-armed immediately.")
         if not self.is_running:
             self.stake = new_config.base_stake
             self.predict = new_config.win_predict_digit
@@ -619,13 +642,16 @@ class TradingBot:
         self.is_trade_in_progress = True
         asyncio.create_task(self._place_trade(contract_type))
 
-    def _set_loss_cooldown(self):
-        """Start the configured cooldown after every losing trade."""
-        cooldown_seconds = (
+    def _configured_loss_cooldown_seconds(self) -> int:
+        return (
             max(0, int(self.config.loss_cooldown_hours)) * 3600
             + max(0, int(self.config.loss_cooldown_minutes)) * 60
             + max(0, int(self.config.loss_cooldown_seconds))
         )
+
+    def _set_loss_cooldown(self):
+        """Start the configured cooldown after every losing trade."""
+        cooldown_seconds = self._configured_loss_cooldown_seconds()
         self.recovery_cooldown_until = (
             time.monotonic() + cooldown_seconds if cooldown_seconds > 0 else 0.0
         )
@@ -640,13 +666,16 @@ class TradingBot:
 
     async def _schedule_recovery_after_settlement(self):
         """Guarantee a recovery trade is re-armed after the configured loss cooldown."""
-        remaining = max(0.0, self.recovery_cooldown_until - time.monotonic())
-        if remaining > 0:
-            await asyncio.sleep(remaining)
-        else:
-            await asyncio.sleep(0.05)
+        # Re-check the deadline periodically so a settings save can change
+        # the active interval without an old sleep bypassing the new value.
+        while True:
+            remaining = self.recovery_cooldown_until - time.monotonic()
+            if remaining <= 0:
+                break
+            await asyncio.sleep(min(remaining, 0.25))
 
         self.recovery_cooldown_until = 0.0
+        self._recovery_cooldown_logged = False
         if not self.is_running or not self.in_recovery_cycle or self.is_trade_in_progress:
             return
         mode = self.config.contract_type_mode.upper()
@@ -1274,7 +1303,11 @@ class TradingBot:
         # in a separate task so the listener is never blocked waiting for the
         # next trade, and do not depend on another market tick arriving.
         if self.is_running and self.in_recovery_cycle and not self.is_trade_in_progress:
-            asyncio.create_task(self._schedule_recovery_after_settlement())
+            if self._recovery_cooldown_task and not self._recovery_cooldown_task.done():
+                self._recovery_cooldown_task.cancel()
+            self._recovery_cooldown_task = asyncio.create_task(
+                self._schedule_recovery_after_settlement()
+            )
 
     def get_status(self) -> BotStatus:
         win_rate = (self.total_wins / self.runs * 100.0) if self.runs > 0 else 0.0

@@ -297,6 +297,21 @@ def test_loss_cycle_target_is_profit_based_not_stake_division():
     assert bot.recovery_loss_stake / 2 == 5.0
 
 
+def test_saving_new_cooldown_reanchors_active_runtime_timer():
+    bot = make_bot(loss_cooldown_seconds=60)
+    bot.is_running = True
+    bot._set_loss_cooldown()
+    old_deadline = bot.recovery_cooldown_until
+
+    updated = bot.config.model_copy(update={"loss_cooldown_seconds": 5})
+    bot.update_config(updated)
+
+    remaining = bot.recovery_cooldown_until - time.monotonic()
+    assert 4.0 <= remaining <= 5.1
+    assert bot.recovery_cooldown_until != old_deadline
+    assert any("LOSS COOLDOWN UPDATED" in item.message for item in bot.logs)
+
+
 def test_configurable_loss_cooldown_uses_hours_minutes_seconds():
     bot = make_bot(
         loss_cooldown_hours=1,
