@@ -211,28 +211,24 @@ class TradingBot:
         return self._both_direction_for_digit(digit)
 
     def _apply_martingale_after_loss(self):
-        """Apply Martingale only when its multiplier is explicitly enabled.
-
-        A Martingale value of 0 means disabled. It must never produce a
-        zero-dollar stake or alter the next stake.
-        """
-        if not self.config.martingale_enabled or self.config.martingale <= 0:
+        """Apply Martingale multiplier after a loss when enabled."""
+        multiplier = self.config.martingale
+        if not self.config.martingale_enabled and multiplier <= 1.0:
             self.stake = self.config.base_stake
-            self.add_log(
-                "info",
-                f"MARTINGALE DISABLED | no multiplier applied after loss; "
-                f"next recovery stake remains at base ${self.stake:.2f}."
-            )
             return
 
+        if multiplier <= 0:
+            self.stake = self.config.base_stake
+            return
+
+        current_before = self.stake
         self.stake = min(
-            self.stake * self.config.martingale,
+            self.stake * multiplier,
             self.config.max_stake
         )
         self.add_log(
             "info",
-            f"MARTINGALE APPLIED | multiplier=x{self.config.martingale:.2f} | "
-            f"next stake=${self.stake:.2f}."
+            f"MARTINGALE APPLIED | ${current_before:.2f} x {multiplier:.2f} = ${self.stake:.2f} (max cap: ${self.config.max_stake:.2f})."
         )
 
     async def start(self):
@@ -592,7 +588,10 @@ class TradingBot:
                     "Only DIGITUNDER or DIGITOVER is permitted."
                 )
                 return
-            self.active_contract_type = None
+            if self.in_recovery_cycle and self.active_contract_type:
+                contract_type = self.active_contract_type
+            else:
+                self.active_contract_type = None
         elif self.in_recovery_cycle and self.active_contract_type:
             contract_type = self.active_contract_type
         elif not self.in_recovery_cycle:
@@ -600,7 +599,9 @@ class TradingBot:
 
         trade_contract_type = contract_type.upper()
         if self.in_recovery_cycle:
-            if self.config.contract_type_mode.upper() == "BOTH" and trade_contract_type in ("DIGITUNDER", "DIGITOVER"):
+            if self.recovery_phase == 2:
+                trade_prediction = self.config.recovery_win_predict_digit
+            elif self.config.contract_type_mode.upper() == "BOTH" and trade_contract_type in ("DIGITUNDER", "DIGITOVER"):
                 trade_prediction = self.config.both_under_barrier if trade_contract_type == "DIGITUNDER" else self.config.both_over_barrier
             else:
                 trade_prediction = None if trade_contract_type in ("CALL", "PUT") else (self.config.loss_predict_digit if self.recovery_phase == 1 else self.config.recovery_win_predict_digit)
@@ -1021,17 +1022,18 @@ class TradingBot:
             self.loss_streak += 1
             self.add_log("error", f"Trade LOST! -${abs(profit):.2f} | Loss Streak: {self.loss_streak} | Total Profit: ${self.total_profit:.2f}")
 
-            # Recovery is entirely opt-in:
-            #   recovery_wins_required=0 -> win-count recovery disabled
-            #   loss_cycle_target=0       -> financial loss-cycle disabled
-            # If both are zero, a loss ends recovery immediately and the next
-            # normal trade always uses the configured base stake.
+            # Recovery win counter reset on every loss
+            self.recovery_win_count = 0
+
             if self.config.loss_cycle_target > 0:
                 self.recovery_loss_stake += max(0.0, trade_stake)
-                if not self.in_recovery_cycle:
-                    self.recovery_win_count = 0
+                if self.loss_streak >= self.config.max_loss_streak:
+                    self.stake = self.config.base_stake
+                    self.loss_streak = 0
+                    self.add_log("warn", f"Max loss streak threshold ({self.config.max_loss_streak}) hit! Resetting stake to base: ${self.stake:.2f}")
+                else:
+                    self._apply_martingale_after_loss()
 
-                self._apply_martingale_after_loss()
                 self.in_recovery_cycle = True
                 self.recovery_phase = 1
                 self.active_contract_type = None if self.config.contract_type_mode.upper() == "BOTH" else trade_contract_type
@@ -1050,35 +1052,7 @@ class TradingBot:
                     f"next_target_profit=${target_profit:.2f} | "
                     f"contract={self.active_contract_type}.",
                 )
-            elif self.config.recovery_wins_required > 0:
-                if self.loss_streak >= self.config.max_loss_streak:
-                    self.stake = self.config.base_stake
-                    self.recovery_win_count = 0
-                    self.recovery_loss_stake = 0.0
-                    self.in_recovery_cycle = False
-                    self.recovery_phase = 0
-                    self.recovery_prediction_active = False
-                    self.active_contract_type = None
-                    self.predict = self.config.win_predict_digit
-                    self.time_duration = self.config.duration
-                    self.loss_streak = 0
-                    self.add_log("warn", f"Max loss streak threshold ({self.config.max_loss_streak}) hit! Resetting stake to base: ${self.stake:.2f}")
-                else:
-                    self._apply_martingale_after_loss()
-                    self.recovery_win_count = 0
-                    self.recovery_loss_stake = 0.0
-                    self.in_recovery_cycle = True
-                    self.recovery_phase = 1
-                    self.active_contract_type = trade_contract_type
-                    self.recovery_prediction_active = False
-                    self.predict = self.config.loss_predict_digit
-                    self.time_duration = self.config.duration
-                    self.add_log(
-                        "info",
-                        f"Recovery contract LOCKED to {self.active_contract_type}; "
-                        f"next recovery prediction={self.predict}; recovery wins reset to 0.",
-                    )
-            else:
+            elif self.loss_streak >= self.config.max_loss_streak:
                 self.stake = self.config.base_stake
                 self.recovery_win_count = 0
                 self.recovery_loss_stake = 0.0
@@ -1088,10 +1062,34 @@ class TradingBot:
                 self.active_contract_type = None
                 self.predict = self.config.win_predict_digit
                 self.time_duration = self.config.duration
+                self.loss_streak = 0
+                self.add_log("warn", f"Max loss streak threshold ({self.config.max_loss_streak}) hit! Resetting stake to base: ${self.stake:.2f}")
+            elif self.config.recovery_wins_required > 0:
+                self._apply_martingale_after_loss()
+                self.in_recovery_cycle = True
+                self.recovery_phase = 1
+                self.active_contract_type = trade_contract_type
+                self.recovery_prediction_active = False
+                self.predict = self.config.loss_predict_digit
+                self.time_duration = self.config.duration
                 self.add_log(
                     "info",
-                    f"RECOVERY DISABLED | recovery_wins_required=0 and loss_cycle_target=0; "
-                    f"next stake reset to base ${self.stake:.2f}. No recovery trade will be scheduled."
+                    f"Recovery contract LOCKED to {self.active_contract_type}; "
+                    f"next recovery prediction={self.predict}; recovery wins reset to 0.",
+                )
+            else:
+                # When recovery_wins_required == 0: apply Martingale multiplier once for the single trade after a loss
+                self._apply_martingale_after_loss()
+                self.in_recovery_cycle = False
+                self.recovery_phase = 0
+                self.recovery_prediction_active = False
+                self.active_contract_type = None
+                self.predict = self.config.loss_predict_digit
+                self.time_duration = self.config.duration
+                self.add_log(
+                    "info",
+                    f"SINGLE-LOSS MARTINGALE APPLIED | Next stake=${self.stake:.2f} for 1 trade. "
+                    f"Prediction digit={self.predict}."
                 )
         # Start a fresh five-second cooldown after every loss that leaves the
         # bot in recovery. This applies to the initial loss and to additional

@@ -1,4 +1,5 @@
 import asyncio
+import random
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -20,10 +21,18 @@ class RecoveryCooldownTests(unittest.IsolatedAsyncioTestCase):
         bot.last_tick_pip_size = None
         bot.last_digit = None
         bot.status_broadcast_callback = None
+        bot.stake = 10.0
+        bot._both_rng = random.Random(12345)
         bot.config = SimpleNamespace(
             symbol="R_100",
             loss_predict_digit=2,
             recovery_win_predict_digit=1,
+            both_under_barrier=4,
+            both_over_barrier=5,
+            contract_type_mode="BOTH",
+            both_inverse_interval_hours=6,
+            both_inverse_enabled=True,
+            both_random_seed="test_seed",
         )
         bot.predict = 2
         bot.scheduled = 0
