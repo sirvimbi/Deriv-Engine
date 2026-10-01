@@ -604,8 +604,29 @@ class TradingBot:
         asyncio.create_task(self._place_trade(contract_type))
 
     async def _schedule_recovery_after_settlement(self):
-        """Guarantee a recovery trade is re-armed after settlement without waiting for a tick."""
-        await asyncio.sleep(0.05)
+        """Re-arm recovery after the configured post-loss cooldown."""
+        cooldown_seconds = (
+            max(0, int(self.config.loss_cooldown_hours)) * 3600
+            + max(0, int(self.config.loss_cooldown_minutes)) * 60
+            + max(0, int(self.config.loss_cooldown_seconds))
+        )
+        self.recovery_cooldown_until = time.time() + cooldown_seconds
+        self._recovery_cooldown_logged = False
+
+        if cooldown_seconds > 0:
+            hours, remainder = divmod(cooldown_seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            self.add_log(
+                "info",
+                f"LOSS COOLDOWN STARTED | {hours:02d}:{minutes:02d}:{seconds:02d} "
+                f"after loss before next recovery trade."
+            )
+            self._recovery_cooldown_logged = True
+            await asyncio.sleep(cooldown_seconds)
+        else:
+            await asyncio.sleep(0.05)
+
+        self.recovery_cooldown_until = 0.0
         if not self.is_running or not self.in_recovery_cycle or self.is_trade_in_progress:
             return
         mode = self.config.contract_type_mode.upper()
