@@ -1137,7 +1137,6 @@ class TradingBot:
                     # Compose the next stake only after recovery has been armed;
                     # otherwise _next_recovery_stake() correctly returns base stake.
                     self.stake = self._next_recovery_stake()
-                    self.in_recovery_cycle = True
                     self.recovery_phase = 1
                     self.active_contract_type = trade_contract_type
                     self.recovery_prediction_active = False
