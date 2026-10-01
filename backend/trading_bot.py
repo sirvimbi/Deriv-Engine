@@ -1052,7 +1052,11 @@ class TradingBot:
                 if self.config.loss_cycle_target > 0:
                     self.recovery_win_count += 1
                     recovered_profit = max(0.0, profit)
-                    self.recovery_loss_stake = max(0.0, self.recovery_loss_stake - recovered_profit)
+                    # Keep the outstanding-loss ledger in currency precision.
+                    self.recovery_loss_stake = round(
+                        max(0.0, self.recovery_loss_stake - recovered_profit),
+                        2,
+                    )
                     if self.recovery_loss_stake <= 0.005:
                         self.recovery_loss_stake = 0.0
                         self.stake = self.config.base_stake
@@ -1142,7 +1146,13 @@ class TradingBot:
             self.recovery_win_count = 0
 
             if self.config.loss_cycle_target > 0:
-                self.recovery_loss_stake += max(0.0, trade_stake)
+                # The ledger is denominated in the actual amount paid for the
+                # settled contract, not the pre-sizing recovery stake hint.
+                # Keep it at cent precision because this is a money ledger.
+                self.recovery_loss_stake = round(
+                    self.recovery_loss_stake + max(0.0, trade_stake),
+                    2,
+                )
 
             # A configured recovery target means the Martingale multiplier is
             # held for exactly that many subsequent executions. With target=0,
@@ -1185,12 +1195,31 @@ class TradingBot:
                     self.predict = self.config.loss_predict_digit
                     self.time_duration = self.config.duration
                     
-                    mart_str = f"x{self.config.martingale}" if (self.config.martingale_enabled and self.config.martingale > 0) else "OFF"
-                    loss_add_str = f" + loss-recovery component (${self.recovery_loss_stake:.2f} / {self.config.loss_cycle_target})" if self.config.loss_cycle_target > 0 else ""
+                    mart_enabled = bool(self.config.martingale_enabled and self.config.martingale > 0)
+                    mart_component = self._martingale_stake_component() if self.martingale_executions_remaining > 0 else self.config.base_stake
+                    remaining_loss_wins = (
+                        max(1, self.config.loss_cycle_target - self.recovery_win_count)
+                        if self.config.loss_cycle_target > 0
+                        else 0
+                    )
+                    loss_component = (
+                        self._loss_cycle_stake_component(remaining_loss_wins)
+                        if remaining_loss_wins > 0
+                        else 0.0
+                    )
+                    mart_str = f"x{self.config.martingale}" if mart_enabled else "OFF"
+                    if remaining_loss_wins > 0:
+                        loss_add_str = (
+                            f" | Loss-cycle=${self.recovery_loss_stake:.2f}/{remaining_loss_wins}"
+                            f"=${loss_component:.4f}"
+                        )
+                    else:
+                        loss_add_str = ""
                     self.add_log(
                         "info",
-                        f"RECOVERY ARMED | Martingale={mart_str}{loss_add_str} | "
-                        f"Next stake=${self.stake:.2f} | Martingale executions={self.martingale_executions_remaining} | "
+                        f"RECOVERY ARMED | Martingale={mart_str} (component=${mart_component:.2f})"
+                        f"{loss_add_str} | Next stake=${self.stake:.2f} | "
+                        f"Martingale executions={self.martingale_executions_remaining} | "
                         f"Recovery target={target_wins}."
                     )
                 else:

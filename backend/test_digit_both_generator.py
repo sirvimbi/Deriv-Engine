@@ -196,7 +196,46 @@ def test_martingale_with_zero_recovery_target_adds_loss_cycle_component():
     assert bot._next_recovery_stake() == 20.0
 
 
-def test_disabled_martingale_keeps_base_stake():
+
+
+def test_recovery_math_uses_actual_outstanding_loss_and_remaining_wins():
+    bot = make_bot(
+        base_stake=10.0,
+        martingale_enabled=True,
+        martingale=2.0,
+        recovery_wins_required=2,
+        loss_cycle_target=2,
+    )
+    bot.in_recovery_cycle = True
+    bot.martingale_executions_remaining = 2
+    bot.recovery_loss_stake = 10.0
+    bot.recovery_win_count = 0
+
+    assert bot._next_recovery_stake() == 25.0
+
+    bot.recovery_win_count = 1
+    bot.recovery_loss_stake = 4.09
+    assert bot._next_recovery_stake() == 24.09
+
+    bot.recovery_win_count = 0
+    bot.martingale_executions_remaining = 2
+    assert bot._next_recovery_stake() == 22.045
+
+
+def test_recovery_math_keeps_loss_ledger_at_currency_precision():
+    bot = make_bot(
+        base_stake=10.0,
+        martingale_enabled=True,
+        martingale=2.0,
+        recovery_wins_required=2,
+        loss_cycle_target=2,
+    )
+    bot.in_recovery_cycle = True
+    bot.martingale_executions_remaining = 2
+    bot.recovery_loss_stake = 10.01
+
+    assert bot._next_recovery_stake() == 25.015
+\n\ndef test_disabled_martingale_keeps_base_stake():
     bot = make_bot(martingale_enabled=False, martingale=2.0, base_stake=10.0)
     bot.in_recovery_cycle = True
     bot.martingale_executions_remaining = 3
