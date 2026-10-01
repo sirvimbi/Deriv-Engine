@@ -589,6 +589,10 @@ class DerivClient:
                     Decimal("0.01"),
                     rounding=ROUND_UP
                 )
+                # Recovery target_profit is a minimum profit requirement. Never
+                # reduce the configured Martingale/loss-cycle stake merely
+                # because the live payout can recover the target with less.
+                calculated_amount = max(calculated_amount, requested_amount)
                 if max_amount is not None:
                     calculated_amount = min(
                         calculated_amount,
