@@ -171,6 +171,31 @@ def test_martingale_target_zero_means_single_next_execution():
     assert bot._next_recovery_stake() == 10.0
 
 
+def test_martingale_with_zero_recovery_target_adds_loss_cycle_component():
+    bot = make_bot(
+        martingale_enabled=True,
+        martingale=2.0,
+        base_stake=10.0,
+        recovery_wins_required=0,
+        loss_cycle_target=2,
+    )
+    bot.in_recovery_cycle = True
+    # Recovery target=0 still gives Martingale exactly one recovery execution.
+    bot.martingale_executions_remaining = 1
+    bot.recovery_loss_stake = 10.0
+    bot.recovery_win_count = 0
+
+    # $20 fixed Martingale component + $5 loss-cycle component = $25 total.
+    assert bot._next_recovery_stake() == 25.0
+
+    # After the one Martingale execution is consumed, subsequent loss-cycle
+    # executions revert to base + the remaining loss-cycle component.
+    bot.martingale_executions_remaining = 0
+    bot.recovery_win_count = 1
+    bot.recovery_loss_stake = 10.0
+    assert bot._next_recovery_stake() == 20.0
+
+
 def test_disabled_martingale_keeps_base_stake():
     bot = make_bot(martingale_enabled=False, martingale=2.0, base_stake=10.0)
     bot.in_recovery_cycle = True
