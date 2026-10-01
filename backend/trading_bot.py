@@ -1153,11 +1153,18 @@ class TradingBot:
                         f"Recovery target={target_wins}."
                     )
                 else:
-                    # Single loss Martingale (when recovery_wins_required == 0 and loss_cycle_target == 0)
+                    # No recovery target is configured. Martingale still applies
+                    # to the immediate next execution, but it must be calculated
+                    # from base_stake rather than the already-lost stake.
                     self.in_recovery_cycle = False
                     self.recovery_phase = 0
                     self.recovery_prediction_active = False
                     self.active_contract_type = None
+                    self.stake = (
+                        self.config.base_stake * self.config.martingale
+                        if self.config.martingale_enabled and self.config.martingale > 0
+                        else self.config.base_stake
+                    )
                     self.predict = self.config.loss_predict_digit
                     self.time_duration = self.config.duration
                     self.add_log(
