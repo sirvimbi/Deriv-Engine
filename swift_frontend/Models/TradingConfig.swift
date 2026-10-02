@@ -25,6 +25,8 @@ public struct TradingConfig: Codable, Equatable {
     public var both_inverse_enabled: Bool
     public var both_inverse_interval_hours: Int
     public var loss_predict_digit: Int
+    public var recovery_over_barrier: Int
+    public var recovery_under_barrier: Int
     public var recovery_win_predict_digit: Int
     public var duration: Int
     public var duration_unit: String
@@ -61,7 +63,9 @@ public struct TradingConfig: Codable, Equatable {
         both_inverse_enabled: Bool = true,
         both_inverse_interval_hours: Int = 6,
         loss_predict_digit: Int = 3,
-        recovery_win_predict_digit: Int = 3,
+        recovery_over_barrier: Int = 7,
+        recovery_under_barrier: Int = 2,
+        recovery_win_predict_digit: Int = 7,
         duration: Int = 1,
         duration_unit: String = "t",
         currency: String = "USD",
@@ -94,7 +98,9 @@ public struct TradingConfig: Codable, Equatable {
         self.both_inverse_enabled = both_inverse_enabled
         self.both_inverse_interval_hours = both_inverse_interval_hours
         self.loss_predict_digit = loss_predict_digit
-        self.recovery_win_predict_digit = recovery_win_predict_digit
+        self.recovery_over_barrier = recovery_over_barrier
+        self.recovery_under_barrier = recovery_under_barrier
+        self.recovery_win_predict_digit = recovery_over_barrier
         self.duration = duration
         self.duration_unit = duration_unit
         self.currency = currency
@@ -112,7 +118,7 @@ public struct TradingConfig: Codable, Equatable {
         case under_trigger_digit, over_trigger_digit
         case win_predict_digit, both_under_barrier, both_over_barrier
         case both_inverse_enabled, both_inverse_interval_hours
-        case loss_predict_digit, recovery_win_predict_digit
+        case loss_predict_digit, recovery_over_barrier, recovery_under_barrier, recovery_win_predict_digit
         case duration, duration_unit, currency, recovery_wins_required
         case loss_cycle_target, contract_type_mode, account_type
     }
@@ -149,7 +155,9 @@ public struct TradingConfig: Codable, Equatable {
         try c.encode(both_inverse_enabled, forKey: .both_inverse_enabled)
         try c.encode(both_inverse_interval_hours, forKey: .both_inverse_interval_hours)
         try c.encode(loss_predict_digit, forKey: .loss_predict_digit)
-        try c.encode(recovery_win_predict_digit, forKey: .recovery_win_predict_digit)
+        try c.encode(recovery_over_barrier, forKey: .recovery_over_barrier)
+        try c.encode(recovery_under_barrier, forKey: .recovery_under_barrier)
+        try c.encode(recovery_over_barrier, forKey: .recovery_win_predict_digit)
         try c.encode(duration, forKey: .duration)
         try c.encode(duration_unit, forKey: .duration_unit)
         try c.encode(currency, forKey: .currency)
@@ -194,7 +202,10 @@ public struct TradingConfig: Codable, Equatable {
         both_inverse_enabled = try c.decodeIfPresent(Bool.self, forKey: .both_inverse_enabled) ?? true
         both_inverse_interval_hours = min(max(try c.decodeIfPresent(Int.self, forKey: .both_inverse_interval_hours) ?? 6, 1), 24)
         loss_predict_digit = try c.decodeIfPresent(Int.self, forKey: .loss_predict_digit) ?? 3
-        recovery_win_predict_digit = try c.decodeIfPresent(Int.self, forKey: .recovery_win_predict_digit) ?? 3
+        let decodedOver = try c.decodeIfPresent(Int.self, forKey: .recovery_over_barrier) ?? (try c.decodeIfPresent(Int.self, forKey: .recovery_win_predict_digit) ?? 7)
+        recovery_over_barrier = min(max(decodedOver, 0), 8)
+        recovery_under_barrier = min(max(try c.decodeIfPresent(Int.self, forKey: .recovery_under_barrier) ?? 2, 1), 9)
+        recovery_win_predict_digit = recovery_over_barrier
         duration = try c.decodeIfPresent(Int.self, forKey: .duration) ?? 1
         duration_unit = try c.decodeIfPresent(String.self, forKey: .duration_unit) ?? "t"
         currency = try c.decodeIfPresent(String.self, forKey: .currency) ?? "USD"

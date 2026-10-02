@@ -280,8 +280,11 @@ public struct SettingsView: View {
                 dropdownRow("Loss Prediction Digit") {
                     IntegerDropdown("Loss Prediction Digit", value: $viewModel.config.loss_predict_digit, range: viewModel.digitBarrierRange)
                 }
-                dropdownRow("Recovery Win Target Prediction Digit") {
-                    IntegerDropdown("Recovery Win Target Prediction Digit", value: $viewModel.config.recovery_win_predict_digit, range: viewModel.digitBarrierRange)
+                dropdownRow("Recovery Win Target Digit-Over Barrier") {
+                    IntegerDropdown("Recovery Win Target Digit-Over Barrier", value: $viewModel.config.recovery_over_barrier, range: 0...8)
+                }
+                dropdownRow("Recovery Win Target Digit-Under Barrier") {
+                    IntegerDropdown("Recovery Win Target Digit-Under Barrier", value: $viewModel.config.recovery_under_barrier, range: 1...9)
                 }
             }
 
@@ -388,7 +391,8 @@ private extension SettingsView {
             "BOTH Inverse Generator: \(c.both_inverse_enabled ? "ON" : "OFF")",
             "BOTH Inverse Interval Hours: \(c.both_inverse_interval_hours)",
             "Loss Prediction Digit: \(c.loss_predict_digit)",
-            "Recovery Win Target Prediction Digit: \(c.recovery_win_predict_digit)",
+            "Recovery Win Target Digit-Over Barrier: \(c.recovery_over_barrier)",
+            "Recovery Win Target Digit-Under Barrier: \(c.recovery_under_barrier)",
             "Recovery Win Target: \(c.recovery_wins_required)",
             "Loss Cycle Target: \(c.loss_cycle_target)",
             "Allowed Contracts: \(c.contract_type_mode)",

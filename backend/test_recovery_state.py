@@ -22,6 +22,8 @@ class RecoveryStateTests(unittest.IsolatedAsyncioTestCase):
             recovery_wins_required=2,
             win_predict_digit=8,
             loss_predict_digit=3,
+            recovery_over_barrier=7,
+            recovery_under_barrier=3,
             recovery_win_predict_digit=3,
             contract_type_mode="BOTH",
         )

@@ -69,7 +69,9 @@ public class SettingsViewModel: ObservableObject {
         let range = digitBarrierRange
         config.win_predict_digit = min(max(config.win_predict_digit, range.lowerBound), range.upperBound)
         config.loss_predict_digit = min(max(config.loss_predict_digit, range.lowerBound), range.upperBound)
-        config.recovery_win_predict_digit = min(max(config.recovery_win_predict_digit, range.lowerBound), range.upperBound)
+        config.recovery_over_barrier = min(max(config.recovery_over_barrier, 0), 8)
+        config.recovery_under_barrier = min(max(config.recovery_under_barrier, 1), 9)
+        config.recovery_win_predict_digit = config.recovery_over_barrier
         config.both_under_barrier = min(max(config.both_under_barrier, 1), 9)
         config.both_over_barrier = min(max(config.both_over_barrier, 0), 8)
         config.both_inverse_interval_hours = min(max(config.both_inverse_interval_hours, 1), 24)

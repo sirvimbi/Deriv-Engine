@@ -388,7 +388,8 @@ class TradingBot:
             f"Mode={self.config.contract_type_mode} | Base stake=${self.stake:.2f} | "
             f"Under trigger={self.config.under_trigger_digit} | Over trigger={self.config.over_trigger_digit} | "
             f"Win prediction={self.config.win_predict_digit} | Loss prediction={self.config.loss_predict_digit} | "
-            f"Recovery prediction={self.config.recovery_win_predict_digit} | "
+            f"Recovery Over barrier={self.config.recovery_over_barrier} | "
+            f"Recovery Under barrier={self.config.recovery_under_barrier} | "
             f"Recovery target={self.config.recovery_wins_required} wins "
             f"({'enabled' if self.config.recovery_wins_required > 0 else 'disabled'}) | "
             f"Loss cycle target={self.config.loss_cycle_target} "
@@ -756,11 +757,20 @@ class TradingBot:
         trade_contract_type = contract_type.upper()
         if self.in_recovery_cycle:
             if self.recovery_phase == 2:
-                trade_prediction = self.config.recovery_win_predict_digit
+                if trade_contract_type == "DIGITOVER":
+                    trade_prediction = self.config.recovery_over_barrier
+                elif trade_contract_type == "DIGITUNDER":
+                    trade_prediction = self.config.recovery_under_barrier
+                else:
+                    trade_prediction = self.config.recovery_over_barrier
             elif self.config.contract_type_mode.upper() == "BOTH" and trade_contract_type in ("DIGITUNDER", "DIGITOVER"):
                 trade_prediction = self.config.both_under_barrier if trade_contract_type == "DIGITUNDER" else self.config.both_over_barrier
             else:
-                trade_prediction = None if trade_contract_type in ("CALL", "PUT") else (self.config.loss_predict_digit if self.recovery_phase == 1 else self.config.recovery_win_predict_digit)
+                trade_prediction = None if trade_contract_type in ("CALL", "PUT") else (
+                    self.config.loss_predict_digit if self.recovery_phase == 1 else (
+                        self.config.recovery_over_barrier if trade_contract_type == "DIGITOVER" else self.config.recovery_under_barrier
+                    )
+                )
             if trade_prediction is not None:
                 self.predict = trade_prediction
         else:
@@ -1132,7 +1142,10 @@ class TradingBot:
                     else:
                         self.recovery_phase = 2
                         self.recovery_prediction_active = True
-                        self.predict = self.config.recovery_win_predict_digit
+                        target_contract = self.active_contract_type or trade_contract_type
+                        self.predict = (
+                            self.config.recovery_over_barrier if target_contract == "DIGITOVER" else self.config.recovery_under_barrier
+                        )
                         remaining_wins = max(1, self.config.loss_cycle_target - self.recovery_win_count)
                         next_target = self.recovery_loss_stake / remaining_wins
                         self.stake = self._next_recovery_stake()
@@ -1162,7 +1175,10 @@ class TradingBot:
                     else:
                         self.recovery_phase = 2
                         self.recovery_prediction_active = True
-                        self.predict = self.config.recovery_win_predict_digit
+                        target_contract = self.active_contract_type or trade_contract_type
+                        self.predict = (
+                            self.config.recovery_over_barrier if target_contract == "DIGITOVER" else self.config.recovery_under_barrier
+                        )
                         self.stake = self._next_recovery_stake()
                         self.add_log(
                             "info",

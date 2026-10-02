@@ -7,6 +7,7 @@ class RecoveryStateMachineTests(unittest.IsolatedAsyncioTestCase):
         c = TradingConfig(
             base_stake=5, max_stake=500, martingale=2,
             win_predict_digit=8, loss_predict_digit=2,
+            recovery_over_barrier=7, recovery_under_barrier=3,
             recovery_win_predict_digit=3, recovery_wins_required=2,
             contract_type_mode="BOTH"
         )
@@ -106,6 +107,7 @@ class RecoveryExecutionPayloadTests(unittest.IsolatedAsyncioTestCase):
         c = TradingConfig(
             base_stake=5, max_stake=500, martingale=2,
             win_predict_digit=8, loss_predict_digit=2,
+            recovery_over_barrier=7, recovery_under_barrier=3,
             recovery_win_predict_digit=3, recovery_wins_required=2,
             contract_type_mode="BOTH"
         )
