@@ -568,12 +568,21 @@ class TradingBot:
             self._schedule_trade(self.active_contract_type)
             return
 
-        # Normal/base-stake entry supports both digit contracts and Rise/Fall.
+        # Normal entry also includes the immediate post-loss Martingale
+        # execution when no multi-win recovery cycle is configured. The
+        # cooldown only blocks until its deadline; it must not block the
+        # Martingale stake after the cooldown expires.
         if self.in_recovery_cycle:
             return
 
+        martingale_entry_pending = self.martingale_executions_remaining > 0
+        normal_entry_ready = (
+            abs(self.stake - self.config.base_stake) < 0.001
+            or martingale_entry_pending
+        )
+
         if mode in ("CALL", "PUT", "RISEFALL"):
-            if abs(self.stake - self.config.base_stake) >= 0.001:
+            if not normal_entry_ready:
                 return
             direction = mode
             if mode == "RISEFALL":
@@ -591,7 +600,7 @@ class TradingBot:
             return
 
         if mode == "BOTH":
-            if abs(self.stake - self.config.base_stake) >= 0.001:
+            if not normal_entry_ready:
                 return
 
             direction = self._next_both_direction()
@@ -619,14 +628,14 @@ class TradingBot:
             self._schedule_trade(direction)
             return
 
-        if mode == "DIGITUNDER" and self.last_digit == self.config.under_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
+        if mode == "DIGITUNDER" and self.last_digit == self.config.under_trigger_digit and normal_entry_ready:
             self.add_log(
                 "info",
                 f"ENTRY TRIGGER HIT | type=DIGITUNDER | trigger_digit={self.last_digit} | "
                 f"barrier={self.config.win_predict_digit} | stake=${self.stake:.2f}"
             )
             self._schedule_trade("DIGITUNDER")
-        elif mode == "DIGITOVER" and self.last_digit == self.config.over_trigger_digit and abs(self.stake - self.config.base_stake) < 0.001:
+        elif mode == "DIGITOVER" and self.last_digit == self.config.over_trigger_digit and normal_entry_ready:
             self.add_log(
                 "info",
                 f"ENTRY TRIGGER HIT | type=DIGITOVER | trigger_digit={self.last_digit} | "
@@ -1203,6 +1212,7 @@ class TradingBot:
                 self.recovery_phase = 0
                 self.recovery_prediction_active = False
                 self.active_contract_type = None
+                self.martingale_executions_remaining = 0
                 self.predict = self.config.win_predict_digit
                 self.time_duration = self.config.duration
                 self.loss_streak = 0
