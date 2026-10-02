@@ -686,9 +686,7 @@ class TradingBot:
             )
 
     async def _schedule_recovery_after_settlement(self):
-        """Guarantee a recovery trade is re-armed after the configured loss cooldown."""
-        # Re-check the deadline periodically so a settings save can change
-        # the active interval without an old sleep bypassing the new value.
+        """Guarantee next trade is executed after the configured loss cooldown."""
         while True:
             remaining = self.recovery_cooldown_until - time.monotonic()
             if remaining <= 0:
@@ -697,8 +695,11 @@ class TradingBot:
 
         self.recovery_cooldown_until = 0.0
         self._recovery_cooldown_logged = False
-        if not self.is_running or not self.in_recovery_cycle or self.is_trade_in_progress:
+        if not self.is_running or self.is_trade_in_progress:
             return
+
+        self.add_log("info", "LOSS COOLDOWN COMPLETE | trading re-armed.")
+
         mode = self.config.contract_type_mode.upper()
         if mode == "BOTH":
             direction = self._next_both_direction()
@@ -706,8 +707,13 @@ class TradingBot:
                 return
             self._schedule_trade(direction)
             return
-        if self.active_contract_type:
-            self._schedule_trade(self.active_contract_type)
+
+        target_contract = self.active_contract_type or (
+            "DIGITUNDER" if mode == "DIGITUNDER" else (
+            "DIGITOVER" if mode == "DIGITOVER" else mode
+        ))
+        if target_contract:
+            self._schedule_trade(target_contract)
 
     def _barrier_for_contract(self, contract_type: str) -> Optional[int]:
         """Return the barrier belonging to the actual contract type."""
@@ -1323,7 +1329,7 @@ class TradingBot:
         # The contract callback runs inside Deriv's listener. Re-arm recovery
         # in a separate task so the listener is never blocked waiting for the
         # next trade, and do not depend on another market tick arriving.
-        if self.is_running and self.in_recovery_cycle and not self.is_trade_in_progress:
+        if self.is_running and self.recovery_cooldown_until > time.monotonic() and not self.is_trade_in_progress:
             if self._recovery_cooldown_task and not self._recovery_cooldown_task.done():
                 self._recovery_cooldown_task.cancel()
             self._recovery_cooldown_task = asyncio.create_task(
