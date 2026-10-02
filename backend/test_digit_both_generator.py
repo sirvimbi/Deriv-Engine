@@ -312,6 +312,29 @@ def test_saving_new_cooldown_reanchors_active_runtime_timer():
     assert any("LOSS COOLDOWN UPDATED" in item.message for item in bot.logs)
 
 
+def test_post_cooldown_allows_immediate_martingale_entry():
+    bot = make_bot(
+        base_stake=10.0,
+        martingale_enabled=True,
+        martingale=1.5,
+        loss_cooldown_seconds=0,
+    )
+    bot.is_running = True
+    bot.stake = 15.0
+    bot.martingale_executions_remaining = 1
+    bot.recovery_cooldown_until = 0.0
+    bot.last_tick_quote = 549.59
+
+    scheduled = []
+    bot._next_both_direction = lambda: "DIGITUNDER"
+    bot._schedule_trade = lambda contract_type: scheduled.append(contract_type)
+
+    asyncio.run(bot._on_tick({"quote": 549.60, "pip_size": 2}))
+
+    assert scheduled == ["DIGITUNDER"]
+    assert bot.is_trade_in_progress is False
+
+
 def test_configurable_loss_cooldown_uses_hours_minutes_seconds():
     bot = make_bot(
         loss_cooldown_hours=1,
