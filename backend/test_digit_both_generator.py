@@ -235,7 +235,9 @@ def test_recovery_math_keeps_loss_ledger_at_currency_precision():
     bot.recovery_loss_stake = 10.01
 
     assert bot._next_recovery_stake() == 25.015
-\n\ndef test_disabled_martingale_keeps_base_stake():
+
+
+def test_disabled_martingale_keeps_base_stake():
     bot = make_bot(martingale_enabled=False, martingale=2.0, base_stake=10.0)
     bot.in_recovery_cycle = True
     bot.martingale_executions_remaining = 3

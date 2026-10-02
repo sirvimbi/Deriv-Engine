@@ -97,7 +97,7 @@ class DisabledRecoverySettingsTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertTrue(bot.in_recovery_cycle)
-        self.assertAlmostEqual(bot.stake, 1.3333, places=3)
+        self.assertAlmostEqual(bot.stake, 1.3509, places=3)
         self.assertEqual(bot.recovery_loss_stake, 1.0)
 
     async def test_enabled_martingale_still_scales_recovery_stake(self):

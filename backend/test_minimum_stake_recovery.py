@@ -9,20 +9,24 @@ class MinimumStakeRecoveryTests(unittest.IsolatedAsyncioTestCase):
         client = DerivClient(app_id="test", account_type="demo")
         client.authorized = True
 
-        responses = [
-            {"proposal": {"id": "p1", "ask_price": "0.50", "payout": "0.575"}},
-            {"error": {"message": "Please enter a stake amount that's at least 0.35."}},
-            {"proposal": {"id": "p2", "ask_price": "0.35", "payout": "0.4025"}},
-            {"proposal": {"id": "p2", "ask_price": "0.35", "payout": "0.4025"}},
-            {"balance": {"balance": "100.00", "currency": "USD"}},
-            {"buy": {"contract_id": 123, "buy_price": 0.35, "stake": 0.35}},
-        ]
-        client.send_request = AsyncMock(side_effect=responses)
+        async def mock_send_request(req, **kwargs):
+            if "proposal" in req:
+                amt = float(req.get("amount", 0))
+                if amt < 0.35:
+                    return {"error": {"message": "Please enter a stake amount that's at least 0.35."}}
+                return {"proposal": {"id": "p2", "ask_price": str(amt), "payout": str(round(amt * 1.15, 2))}}
+            if "buy" in req:
+                return {"buy": {"contract_id": 123, "buy_price": 0.35, "stake": 0.35}}
+            if "balance" in req:
+                return {"balance": {"balance": "100.00", "currency": "USD"}}
+            return {}
+
+        client.send_request = AsyncMock(side_effect=mock_send_request)
 
         result = await client.buy_contract(
             symbol="R_100",
             contract_type="DIGITOVER",
-            amount=1.00,
+            amount=0.34,
             duration=1,
             duration_unit="t",
             barrier=2,

@@ -243,18 +243,21 @@ class TradingBot:
         return self.config.base_stake * self.config.martingale
 
     def _loss_cycle_stake_component(self, remaining_wins: int) -> float:
-        """Return the stake addition needed to recover outstanding losses over the remaining wins."""
+        """Return the stake addition needed to recover outstanding losses over the remaining wins.
+        Accounts for option payout return rate (~0.95) so that realized profit recoups the full lost stake."""
         if self.config.loss_cycle_target <= 0 or self.recovery_loss_stake <= 0:
             return 0.0
         wins = max(1, int(remaining_wins))
-        return self.recovery_loss_stake / wins
+        payout_return_rate = 0.95
+        target_profit_per_win = self.recovery_loss_stake / wins
+        return target_profit_per_win / payout_return_rate
 
     def _next_recovery_stake(self) -> float:
         """Compose Martingale and loss-cycle recovery without multiplying a multiplied stake."""
         if not self.in_recovery_cycle:
             return self.config.base_stake
 
-        if self.martingale_executions_remaining > 0:
+        if self.config.martingale_enabled and self.config.martingale > 0:
             martingale_component = self._martingale_stake_component()
         else:
             martingale_component = self.config.base_stake
@@ -271,10 +274,24 @@ class TradingBot:
         )
 
     def _calculate_recovery_stake(self, lost_trade_stake: float) -> float:
-        """Backward-compatible recovery calculation entry point."""
+        """Calculate next recovery stake according to Martingale and Loss Cycle rules."""
+        ref_stake = max(float(lost_trade_stake), self.stake)
+        if self.config.martingale_enabled and self.config.martingale > 0:
+            if ref_stake > self.config.base_stake:
+                martingale_component = ref_stake * self.config.martingale
+            else:
+                martingale_component = self.config.base_stake * self.config.martingale
+        else:
+            martingale_component = self.config.base_stake
+
         if self.config.loss_cycle_target > 0:
-            self.recovery_loss_stake += max(0.0, float(lost_trade_stake))
-        return self._next_recovery_stake()
+            target_profit_per_win = float(lost_trade_stake) / float(self.config.loss_cycle_target)
+            loss_component = target_profit_per_win / 0.95
+        else:
+            loss_component = 0.0
+
+        calculated_stake = min(martingale_component + loss_component, self.config.max_stake)
+        return round(calculated_stake, 4)
 
     def _apply_martingale_after_loss(self):
         """Legacy helper for applying martingale multiplier."""
@@ -568,18 +585,13 @@ class TradingBot:
             self._schedule_trade(self.active_contract_type)
             return
 
-        # Normal entry also includes the immediate post-loss Martingale
-        # execution when no multi-win recovery cycle is configured. The
-        # cooldown only blocks until its deadline; it must not block the
-        # Martingale stake after the cooldown expires.
+        # Normal entry also includes post-loss Martingale / multiplied stake
+        # executions. Once the post-loss cooldown expires, entry is re-armed
+        # for all stake levels.
         if self.in_recovery_cycle:
             return
 
-        martingale_entry_pending = self.martingale_executions_remaining > 0
-        normal_entry_ready = (
-            abs(self.stake - self.config.base_stake) < 0.001
-            or martingale_entry_pending
-        )
+        normal_entry_ready = True
 
         if mode in ("CALL", "PUT", "RISEFALL"):
             if not normal_entry_ready:
@@ -1225,9 +1237,8 @@ class TradingBot:
 
                 if target_wins > 0:
                     self.in_recovery_cycle = True
-                    # Compose the next stake only after recovery has been armed;
-                    # otherwise _next_recovery_stake() correctly returns base stake.
-                    self.stake = self._next_recovery_stake()
+                    # Compose the next recovery stake after a loss using the lost trade stake
+                    self.stake = self._calculate_recovery_stake(trade_stake)
                     self.recovery_phase = 1
                     self.active_contract_type = trade_contract_type
                     self.recovery_prediction_active = False

@@ -36,7 +36,7 @@ class MartingaleRulesTests(unittest.IsolatedAsyncioTestCase):
 
     def test_rule3_martingale_plus_loss_cycle_target(self):
         # Base stake 10, multiplier 2, recovery win target 3, loss cycle target 2
-        # Total stake = (2 x 10) + (10 / 2) = 20 + 5 = 25
+        # Total stake = (2 x 10) + ((10 / 2) / 0.95) = 20 + 5.2632 = 25.2632
         config = TradingConfig(
             base_stake=10.0,
             martingale_enabled=True,
@@ -48,7 +48,7 @@ class MartingaleRulesTests(unittest.IsolatedAsyncioTestCase):
         bot.stake = 10.0
 
         stake = bot._calculate_recovery_stake(10.0)
-        self.assertEqual(stake, 25.0)
+        self.assertAlmostEqual(stake, 25.2632, places=3)
 
 if __name__ == "__main__":
     unittest.main()
