@@ -58,13 +58,20 @@ def test_both_recovery_executes_the_freshly_generated_direction_and_barrier():
     bot.recovery_phase = 2
     bot.recovery_loss_stake = 10.0
     bot.active_contract_type = "DIGITUNDER"  # stale direction from an earlier loss
+    bot._next_both_direction = lambda: "DIGITOVER"
+    bot.both_generator_digit = 4
+    bot.both_direction_window = 0
 
-    asyncio.run(bot._place_trade("DIGITOVER"))
+    asyncio.run(bot._place_trade("BOTH"))
 
     assert len(client.calls) == 1
     assert client.calls[0]["contract_type"] == "DIGITOVER"
     assert client.calls[0]["barrier"] == 7  # recovery barrier follows current direction
     assert bot.active_contract_type is None
+    assert any(
+        "BOTH EXECUTION SIGNAL | generator_digit=4 | type=DIGITOVER" in item.message
+        for item in bot.logs
+    )
 
 
 def test_loss_cycle_recovery_stake_does_not_compound_previous_trade_stake():
@@ -133,3 +140,49 @@ def test_loss_cycle_sizing_fails_safely_when_target_exceeds_maximum_stake():
     else:
         raise AssertionError("Sizing should stop rather than exceed the configured maximum.")
     assert client.buy_request is None
+
+
+
+def test_loss_cycle_does_not_reset_before_configured_recovery_win_target():
+    bot = TradingBot(TradingConfig(
+        contract_type_mode="BOTH",
+        base_stake=0.50,
+        max_stake=200.0,
+        recovery_wins_required=2,
+        loss_cycle_target=2,
+    ))
+    bot.is_running = True
+    bot.in_recovery_cycle = True
+    bot.recovery_phase = 1
+    bot.recovery_loss_stake = 4.19
+    bot.recovery_win_count = 0
+    bot.active_trade_contract_id = 1
+
+    asyncio.run(bot._handle_contract_finished(
+        {"profit": 5.21, "status": "won", "exit_spot": "100.07"},
+        "DIGITOVER",
+        6,
+        2.71,
+        1,
+    ))
+
+    # The first profit clears the monetary ledger, but the configured two-win
+    # recovery target must still be honored.
+    assert bot.in_recovery_cycle is True
+    assert bot.recovery_win_count == 1
+    assert bot.recovery_loss_stake == 0.0
+    assert bot.recovery_phase == 2
+
+    bot.active_trade_contract_id = 2
+    asyncio.run(bot._handle_contract_finished(
+        {"profit": 0.96, "status": "won", "exit_spot": "100.08"},
+        "DIGITOVER",
+        6,
+        0.50,
+        2,
+    ))
+
+    assert bot.in_recovery_cycle is False
+    assert bot.recovery_win_count == 0
+    assert bot.recovery_phase == 0
+    assert bot.stake == 0.50
