@@ -34,8 +34,8 @@ class TradingBot:
         self.martingale_executions_remaining = 0
         self.recovery_cooldown_until = 0.0
         self._recovery_cooldown_logged = False
-        # Contract type is locked when recovery starts and is never inferred
-        # from the stake amount.
+        # Single-direction recovery keeps its contract type locked. BOTH mode
+        # must remain generator-driven and choose a fresh direction per trade.
         self.active_contract_type: Optional[str] = None
         self.active_trade_contract_id: Optional[int] = None
         self.settled_contract_ids = set()
