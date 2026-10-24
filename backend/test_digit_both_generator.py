@@ -333,7 +333,7 @@ def test_post_cooldown_allows_immediate_martingale_entry():
 
     asyncio.run(bot._on_tick({"quote": 549.60, "pip_size": 2}))
 
-    assert scheduled == ["DIGITUNDER"]
+    assert scheduled == ["BOTH"]
     assert bot.is_trade_in_progress is False
 
 
