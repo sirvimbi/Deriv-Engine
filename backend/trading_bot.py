@@ -1087,7 +1087,18 @@ class TradingBot:
                         max(0.0, self.recovery_loss_stake - recovered_profit),
                         2,
                     )
-                    if self.recovery_loss_stake <= 0.005:
+                    required_recovery_wins = max(
+                        self.config.recovery_wins_required,
+                        self.config.loss_cycle_target,
+                    )
+                    # A cleared loss ledger is necessary but not sufficient when
+                    # a recovery-win target is configured. Honor both settings:
+                    # finish only after the money ledger is clear AND the target
+                    # number of recovery wins has been completed.
+                    if (
+                        self.recovery_loss_stake <= 0.005
+                        and self.recovery_win_count >= required_recovery_wins
+                    ):
                         self.recovery_loss_stake = 0.0
                         self.stake = self.config.base_stake
                         self.recovery_win_count = 0
@@ -1100,7 +1111,8 @@ class TradingBot:
                         self.add_log(
                             "info",
                             f"LOSS-CYCLE RECOVERED | recovery_profit=${recovered_profit:.2f} | "
-                            f"remaining_loss=${self.recovery_loss_stake:.2f}. "
+                            f"remaining_loss=${self.recovery_loss_stake:.2f} | "
+                            f"recovery_wins={required_recovery_wins}/{required_recovery_wins}. "
                             f"Resetting stake to base ${self.stake:.2f}."
                         )
                     else:
@@ -1110,15 +1122,19 @@ class TradingBot:
                         self.predict = (
                             self.config.recovery_over_barrier if target_contract == "DIGITOVER" else self.config.recovery_under_barrier
                         )
-                        remaining_wins = max(1, self.config.loss_cycle_target - self.recovery_win_count)
+                        remaining_wins = max(
+                            1,
+                            self.config.loss_cycle_target - self.recovery_win_count,
+                        )
                         next_target = self.recovery_loss_stake / remaining_wins
                         self.stake = self._next_recovery_stake()
                         self.add_log(
                             "info",
                             f"LOSS-CYCLE RECOVERY WIN | recovered=${recovered_profit:.2f} | "
                             f"outstanding=${self.recovery_loss_stake:.2f} | "
-                            f"recovery_wins={self.recovery_win_count} | "
-                            f"next_target_profit=${next_target:.2f}.",
+                            f"recovery_wins={self.recovery_win_count}/{required_recovery_wins} | "
+                            f"next_target_profit=${next_target:.2f}. Continuing until both the loss ledger "
+                            "and configured recovery-win target are satisfied.",
                         )
                 else:
                     self.recovery_win_count += 1
