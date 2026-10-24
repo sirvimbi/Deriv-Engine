@@ -889,87 +889,87 @@ class TradingBot:
             self.is_trade_in_progress = False
             return
 
-            # The client may resize a loss-cycle recovery trade from the live proposal payout.
-            # Settlement must use the actual purchased stake.
-            trade_stake = float(buy_res.get("stake", trade_stake))
-            if recovery_target_profit is not None:
-                self.stake = trade_stake
+        # The client may resize a loss-cycle recovery trade from the live proposal payout.
+        # Settlement must use the actual purchased stake.
+        trade_stake = float(buy_res.get("stake", trade_stake))
+        if recovery_target_profit is not None:
+            self.stake = trade_stake
 
-            contract_id = buy_res.get("contract_id")
-            if not contract_id:
-                self.add_log("error", "Received invalid contract_id from Deriv.")
+        contract_id = buy_res.get("contract_id")
+        if not contract_id:
+            self.add_log("error", "Received invalid contract_id from Deriv.")
+            self.is_trade_in_progress = False
+            return
+
+        contract_id = int(contract_id)
+        self.active_trade_contract_id = contract_id
+        actual_buy_price = float(buy_res.get("buy_price", trade_stake))
+        self.add_log(
+            "info",
+            f"Contract #{contract_id} placed. Type={trade_contract_type} | "
+            f"Prediction={trade_prediction} | BuyPrice=${actual_buy_price:.2f} | "
+            f"Stake=${trade_stake:.2f} | Waiting for outcome..."
+        )
+
+        # The contract id is an idempotency key. Duplicate final updates
+        # must never advance the recovery state twice.
+        done_event = asyncio.Event()
+
+        contract_verified = False
+
+        async def _on_contract_update(poc: Dict[str, Any]):
+            nonlocal contract_verified
+            if not contract_verified:
+                returned_type = poc.get("contract_type")
+                if returned_type:
+                    contract_verified = True
+                    if str(returned_type).upper() != str(trade_contract_type).upper():
+                        self.add_log(
+                            "error",
+                            f"CONTRACT MISMATCH | requested={trade_contract_type} | "
+                            f"Deriv returned={returned_type} | contract_id={contract_id}. "
+                            f"Stopping bot to prevent further trades."
+                        )
+                        await self.stop("Deriv contract type mismatch")
+                        done_event.set()
+                        return
+                    self.add_log(
+                        "info",
+                        f"CONTRACT VERIFIED | id={contract_id} | type={returned_type} | "
+                        f"requested={trade_contract_type} | barrier={trade_prediction}"
+                    )
+
+            if poc.get("is_sold"):
+                if contract_id in self.settled_contract_ids:
+                    return
+                self.settled_contract_ids.add(contract_id)
+                self.client.unsubscribe_contract(contract_id)
+                await self._handle_contract_finished(
+                    poc,
+                    trade_contract_type=trade_contract_type,
+                    trade_prediction=trade_prediction,
+                    trade_stake=trade_stake,
+                    contract_id=contract_id
+                )
+                done_event.set()
+
+        await self.client.subscribe_contract(contract_id, _on_contract_update)
+        
+        # Timeout safety after 30 seconds. A settlement callback may
+        # have completed the trade immediately before the wait timed out,
+        # or the bot may have stopped because the settlement triggered a
+        # risk limit. In either case this is a normal monitor shutdown,
+        # not a failed contract.
+        try:
+            await asyncio.wait_for(done_event.wait(), timeout=30.0)
+        except asyncio.TimeoutError:
+            if contract_id in self.settled_contract_ids or not self.is_running:
+                self.client.unsubscribe_contract(contract_id)
                 self.is_trade_in_progress = False
                 return
-
-            contract_id = int(contract_id)
-            self.active_trade_contract_id = contract_id
-            actual_buy_price = float(buy_res.get("buy_price", trade_stake))
-            self.add_log(
-                "info",
-                f"Contract #{contract_id} placed. Type={trade_contract_type} | "
-                f"Prediction={trade_prediction} | BuyPrice=${actual_buy_price:.2f} | "
-                f"Stake=${trade_stake:.2f} | Waiting for outcome..."
-            )
-
-            # The contract id is an idempotency key. Duplicate final updates
-            # must never advance the recovery state twice.
-            done_event = asyncio.Event()
-
-            contract_verified = False
-
-            async def _on_contract_update(poc: Dict[str, Any]):
-                nonlocal contract_verified
-                if not contract_verified:
-                    returned_type = poc.get("contract_type")
-                    if returned_type:
-                        contract_verified = True
-                        if str(returned_type).upper() != str(trade_contract_type).upper():
-                            self.add_log(
-                                "error",
-                                f"CONTRACT MISMATCH | requested={trade_contract_type} | "
-                                f"Deriv returned={returned_type} | contract_id={contract_id}. "
-                                f"Stopping bot to prevent further trades."
-                            )
-                            await self.stop("Deriv contract type mismatch")
-                            done_event.set()
-                            return
-                        self.add_log(
-                            "info",
-                            f"CONTRACT VERIFIED | id={contract_id} | type={returned_type} | "
-                            f"requested={trade_contract_type} | barrier={trade_prediction}"
-                        )
-
-                if poc.get("is_sold"):
-                    if contract_id in self.settled_contract_ids:
-                        return
-                    self.settled_contract_ids.add(contract_id)
-                    self.client.unsubscribe_contract(contract_id)
-                    await self._handle_contract_finished(
-                        poc,
-                        trade_contract_type=trade_contract_type,
-                        trade_prediction=trade_prediction,
-                        trade_stake=trade_stake,
-                        contract_id=contract_id
-                    )
-                    done_event.set()
-
-            await self.client.subscribe_contract(contract_id, _on_contract_update)
-            
-            # Timeout safety after 30 seconds. A settlement callback may
-            # have completed the trade immediately before the wait timed out,
-            # or the bot may have stopped because the settlement triggered a
-            # risk limit. In either case this is a normal monitor shutdown,
-            # not a failed contract.
-            try:
-                await asyncio.wait_for(done_event.wait(), timeout=30.0)
-            except asyncio.TimeoutError:
-                if contract_id in self.settled_contract_ids or not self.is_running:
-                    self.client.unsubscribe_contract(contract_id)
-                    self.is_trade_in_progress = False
-                    return
-                self.client.unsubscribe_contract(contract_id)
-                self.add_log("error", f"Contract #{contract_id} status timeout.")
-                self.is_trade_in_progress = False
+            self.client.unsubscribe_contract(contract_id)
+            self.add_log("error", f"Contract #{contract_id} status timeout.")
+            self.is_trade_in_progress = False
 
     @staticmethod
     def _extract_last_digit_from_quote(quote: Any, pip_size: Optional[int] = None) -> Optional[int]:

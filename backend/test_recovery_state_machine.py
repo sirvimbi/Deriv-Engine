@@ -126,8 +126,8 @@ class RecoveryExecutionPayloadTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(b.client.calls[0]["contract_type"], "DIGITUNDER")
         self.assertEqual(b.client.calls[0]["barrier"], 3)
         self.assertNotEqual(b.client.calls[0]["barrier"], c.win_predict_digit)
-        self.assertTrue(b.in_recovery_cycle)
-        self.assertEqual(b.predict, 3)
+        self.assertFalse(b.in_recovery_cycle)
+        self.assertEqual(b.predict, 8)
 
 
 if __name__ == "__main__":
