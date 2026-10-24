@@ -257,7 +257,11 @@ class TradingBot:
         if not self.in_recovery_cycle:
             return self.config.base_stake
 
-        if self.config.martingale_enabled and self.config.martingale > 0:
+        if (
+            self.config.martingale_enabled
+            and self.config.martingale > 0
+            and self.martingale_executions_remaining > 0
+        ):
             martingale_component = self._martingale_stake_component()
         else:
             martingale_component = self.config.base_stake
@@ -275,23 +279,11 @@ class TradingBot:
 
     def _calculate_recovery_stake(self, lost_trade_stake: float) -> float:
         """Calculate next recovery stake according to Martingale and Loss Cycle rules."""
-        ref_stake = max(float(lost_trade_stake), self.stake)
-        if self.config.martingale_enabled and self.config.martingale > 0:
-            if ref_stake > self.config.base_stake:
-                martingale_component = ref_stake * self.config.martingale
-            else:
-                martingale_component = self.config.base_stake * self.config.martingale
-        else:
-            martingale_component = self.config.base_stake
-
-        if self.config.loss_cycle_target > 0:
-            target_profit_per_win = float(lost_trade_stake) / float(self.config.loss_cycle_target)
-            loss_component = target_profit_per_win / 0.95
-        else:
-            loss_component = 0.0
-
-        calculated_stake = min(martingale_component + loss_component, self.config.max_stake)
-        return round(calculated_stake, 4)
+        # Recovery must be based on the configured base stake, not the previous
+        # (possibly already multiplied) trade stake. The state machine controls
+        # how many executions may use the multiplier; loss-cycle recovery is an
+        # additive component based on the outstanding-loss ledger.
+        return self._next_recovery_stake()
 
     def _apply_martingale_after_loss(self):
         """Legacy helper for applying martingale multiplier."""
@@ -562,11 +554,20 @@ class TradingBot:
                         "result=BREAK_EVEN | no contract placed."
                     )
                     return
-                barrier = (
-                    self.config.both_under_barrier
-                    if direction == "DIGITUNDER"
-                    else self.config.both_over_barrier
-                )
+                if self.recovery_phase == 2:
+                    # In the target-win phase use the recovery barrier for the
+                    # newly generated direction, not the previous contract.
+                    barrier = (
+                        self.config.recovery_under_barrier
+                        if direction == "DIGITUNDER"
+                        else self.config.recovery_over_barrier
+                    )
+                else:
+                    barrier = (
+                        self.config.both_under_barrier
+                        if direction == "DIGITUNDER"
+                        else self.config.both_over_barrier
+                    )
                 self.add_log(
                     "info",
                     f"BOTH RECOVERY SIGNAL | generator_digit={self.both_generator_digit} | "
@@ -745,10 +746,10 @@ class TradingBot:
                     "Only DIGITUNDER or DIGITOVER is permitted."
                 )
                 return
-            if self.in_recovery_cycle and self.active_contract_type:
-                contract_type = self.active_contract_type
-            else:
-                self.active_contract_type = None
+            # BOTH mode chooses a fresh direction for every execution, including
+            # recovery executions. Never replace the generator's current signal
+            # with the contract type from a previous loss.
+            self.active_contract_type = None
         elif self.in_recovery_cycle and self.active_contract_type:
             contract_type = self.active_contract_type
         elif not self.in_recovery_cycle:
@@ -1262,7 +1263,11 @@ class TradingBot:
                     # Compose the next recovery stake after a loss using the lost trade stake
                     self.stake = self._calculate_recovery_stake(trade_stake)
                     self.recovery_phase = 1
-                    self.active_contract_type = trade_contract_type
+                    self.active_contract_type = (
+                        None
+                        if self.config.contract_type_mode.upper() == "BOTH"
+                        else trade_contract_type
+                    )
                     self.recovery_prediction_active = False
                     self.predict = self.config.loss_predict_digit
                     self.time_duration = self.config.duration
