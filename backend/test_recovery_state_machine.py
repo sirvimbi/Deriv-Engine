@@ -75,7 +75,8 @@ class RecoveryStateMachineTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(b.in_recovery_cycle)
         self.assertEqual(b.recovery_phase, 1)
         self.assertEqual(b.recovery_win_count, 0)
-        self.assertEqual(b.active_contract_type, "DIGITOVER")
+        # BOTH recovery is generator-driven, not locked to the lost direction.
+        self.assertIsNone(b.active_contract_type)
         self.assertEqual(b.predict, 2)
 
 
