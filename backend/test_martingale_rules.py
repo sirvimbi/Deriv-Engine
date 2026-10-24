@@ -8,6 +8,8 @@ class MartingaleRulesTests(unittest.IsolatedAsyncioTestCase):
         config_enabled = TradingConfig(base_stake=10.0, martingale_enabled=True, martingale=2.0)
         bot = TradingBot(config_enabled)
         bot.stake = 10.0
+        bot.in_recovery_cycle = True
+        bot.martingale_executions_remaining = config_enabled.recovery_wins_required
         stake = bot._calculate_recovery_stake(10.0)
         self.assertEqual(stake, 20.0)
 
@@ -15,6 +17,7 @@ class MartingaleRulesTests(unittest.IsolatedAsyncioTestCase):
         config_disabled = TradingConfig(base_stake=10.0, martingale_enabled=False, martingale=2.0)
         bot_dis = TradingBot(config_disabled)
         bot_dis.stake = 10.0
+        bot_dis.in_recovery_cycle = True
         stake_dis = bot_dis._calculate_recovery_stake(10.0)
         self.assertEqual(stake_dis, 10.0)
 
@@ -30,6 +33,8 @@ class MartingaleRulesTests(unittest.IsolatedAsyncioTestCase):
         )
         bot = TradingBot(config)
         bot.stake = 10.0
+        bot.in_recovery_cycle = True
+        bot.martingale_executions_remaining = config.recovery_wins_required
 
         stake = bot._calculate_recovery_stake(10.0)
         self.assertEqual(stake, 20.0)
@@ -46,6 +51,9 @@ class MartingaleRulesTests(unittest.IsolatedAsyncioTestCase):
         )
         bot = TradingBot(config)
         bot.stake = 10.0
+        bot.in_recovery_cycle = True
+        bot.martingale_executions_remaining = config.recovery_wins_required
+        bot.recovery_loss_stake = 10.0
 
         stake = bot._calculate_recovery_stake(10.0)
         self.assertAlmostEqual(stake, 25.2632, places=3)
