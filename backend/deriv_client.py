@@ -602,7 +602,9 @@ class DerivClient:
                             f"Recovery target cannot be achieved within max stake ${max_amount_decimal:.2f}; "
                             f"required stake is ${calculated_amount:.2f} for target profit ${target_profit_decimal:.2f}."
                         )
-                    calculated_amount = max_amount_decimal
+                    # max_amount is a hard ceiling, not a target stake. Keep the
+                    # calculated amount when it is below the cap; forcing it to the
+                    # cap turns a small recovery request into a maximum-size trade.
                 calculated_amount = max(Decimal("0.01"), calculated_amount)
 
                 logger.info(
