@@ -248,7 +248,7 @@ public class DashboardViewModel: ObservableObject {
                     _ = try await APIService.shared.stopBot()
                 } else {
                     let runtime = try await APIService.shared.getRuntime()
-                    guard runtime.engine_build == "recovery-state-v6-both-mode-stake-cap" else {
+                    guard runtime.engine_build == "recovery-state-v7-both-execution-audit" else {
                         throw NSError(
                             domain: "BackendRuntime",
                             code: 409,
