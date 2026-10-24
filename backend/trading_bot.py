@@ -546,37 +546,9 @@ class TradingBot:
                 self.add_log("info", "RECOVERY COOLDOWN COMPLETE | recovery trading re-armed.")
 
             if mode == "BOTH":
-                direction = self._next_both_direction()
-                if direction is None:
-                    self.add_log(
-                        "info",
-                        f"BOTH RECOVERY SIGNAL SKIPPED | generator_digit={self.both_generator_digit} | "
-                        "result=BREAK_EVEN | no contract placed."
-                    )
-                    return
-                if self.recovery_phase == 2:
-                    # In the target-win phase use the recovery barrier for the
-                    # newly generated direction, not the previous contract.
-                    barrier = (
-                        self.config.recovery_under_barrier
-                        if direction == "DIGITUNDER"
-                        else self.config.recovery_over_barrier
-                    )
-                else:
-                    barrier = (
-                        self.config.both_under_barrier
-                        if direction == "DIGITUNDER"
-                        else self.config.both_over_barrier
-                    )
-                self.add_log(
-                    "info",
-                    f"BOTH RECOVERY SIGNAL | generator_digit={self.both_generator_digit} | "
-                    f"type={direction} | barrier={barrier} | recovery_phase={self.recovery_phase} | "
-                    f"six_hour_window={self.both_direction_window + 1} | "
-                    f"inverted={'YES' if self.both_direction_window % 2 else 'NO'} | "
-                    f"stake=${self.stake:.2f}"
-                )
-                self._schedule_trade(direction)
+                # Direction is selected exactly once at the execution boundary.
+                # Tick-driven and cooldown-driven recovery now use the same path.
+                self._schedule_trade("BOTH")
                 return
 
             if not self.active_contract_type:
@@ -616,30 +588,8 @@ class TradingBot:
         if mode == "BOTH":
             if not normal_entry_ready:
                 return
-
-            direction = self._next_both_direction()
-            window = self.both_direction_window
-            if direction is None:
-                if self.both_generator_digit == 5:
-                    self.add_log(
-                        "info",
-                        "BOTH SIGNAL SKIPPED | generator_digit=5 | result=BREAK_EVEN | no contract placed."
-                    )
-                return
-
-            inverted = bool(self.config.both_inverse_enabled) and (window % 2) == 1
-            mapping = (
-                "0-4=UNDER, 6-9=OVER" if inverted
-                else "0-4=OVER, 6-9=UNDER"
-            )
-            self.add_log(
-                "info",
-                f"BOTH SIGNAL | generator_digit={self.both_generator_digit} | type={direction} | "
-                f"barrier={(self.config.both_under_barrier if direction == "DIGITUNDER" else self.config.both_over_barrier)} | inverse_window={window + 1} | "
-                f"mapping={mapping} | inverted={'YES' if inverted else 'NO'} | "
-                f"stake=${self.stake:.2f}"
-            )
-            self._schedule_trade(direction)
+            # The execution layer owns the one and only direction draw.
+            self._schedule_trade("BOTH")
             return
 
         if mode == "DIGITUNDER" and self.last_digit == self.config.under_trigger_digit and normal_entry_ready:
@@ -704,10 +654,8 @@ class TradingBot:
 
         mode = self.config.contract_type_mode.upper()
         if mode == "BOTH":
-            direction = self._next_both_direction()
-            if direction is None:
-                return
-            self._schedule_trade(direction)
+            # Use the same execution-time generator as ordinary tick entries.
+            self._schedule_trade("BOTH")
             return
 
         target_contract = self.active_contract_type or (
@@ -733,22 +681,22 @@ class TradingBot:
             self.is_trade_in_progress = False
             return
 
-        # Capture immutable trade context before any await. Settlement uses
-        # this exact context rather than whatever state the next step has.
-        # BOTH must choose its contract independently for every trade.
-        # Never let the previous recovery contract override a new BOTH signal.
+        # In BOTH mode, the execution layer is the single source of truth for
+        # contract direction. Ignore any caller-supplied/stale direction so tick
+        # and cooldown paths cannot silently favor the previous contract.
+        both_generator_digit: Optional[int] = None
         if self.config.contract_type_mode.upper() == "BOTH":
-            if contract_type.upper() not in ("DIGITUNDER", "DIGITOVER"):
+            generated_direction = self._next_both_direction()
+            both_generator_digit = self.both_generator_digit
+            if generated_direction is None:
                 self.is_trade_in_progress = False
                 self.add_log(
-                    "error",
-                    f"INVALID BOTH CONTRACT | requested={contract_type}. "
-                    "Only DIGITUNDER or DIGITOVER is permitted."
+                    "info",
+                    f"BOTH SIGNAL SKIPPED | generator_digit={both_generator_digit} | "
+                    "result=BREAK_EVEN | no contract placed."
                 )
                 return
-            # BOTH mode chooses a fresh direction for every execution, including
-            # recovery executions. Never replace the generator's current signal
-            # with the contract type from a previous loss.
+            contract_type = generated_direction
             self.active_contract_type = None
         elif self.in_recovery_cycle and self.active_contract_type:
             contract_type = self.active_contract_type
@@ -832,6 +780,21 @@ class TradingBot:
                 else:
                     self.active_contract_type = None
                 return
+
+        if self.config.contract_type_mode.upper() == "BOTH":
+            inverted = bool(self.config.both_inverse_enabled) and (self.both_direction_window % 2) == 1
+            mapping = (
+                "0-4=UNDER, 6-9=OVER" if inverted
+                else "0-4=OVER, 6-9=UNDER"
+            )
+            self.add_log(
+                "info",
+                f"BOTH EXECUTION SIGNAL | generator_digit={both_generator_digit} | "
+                f"type={trade_contract_type} | barrier={trade_prediction} | "
+                f"mapping={mapping} | inverted={'YES' if inverted else 'NO'} | "
+                f"window={self.both_direction_window + 1} | recovery_phase={self.recovery_phase} | "
+                f"stake=${trade_stake:.2f}"
+            )
 
         self.add_log(
             "info",
