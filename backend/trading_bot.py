@@ -278,24 +278,14 @@ class TradingBot:
         )
 
     def _calculate_recovery_stake(self, lost_trade_stake: float) -> float:
-        """Calculate next recovery stake according to Martingale and Loss Cycle rules."""
-        ref_stake = max(float(lost_trade_stake), self.stake)
-        if self.config.martingale_enabled and self.config.martingale > 0:
-            if ref_stake > self.config.base_stake:
-                martingale_component = ref_stake * self.config.martingale
-            else:
-                martingale_component = self.config.base_stake * self.config.martingale
-        else:
-            martingale_component = self.config.base_stake
+        """Use the shared recovery calculation based on the outstanding loss ledger.
 
-        if self.config.loss_cycle_target > 0:
-            target_profit_per_win = float(lost_trade_stake) / float(self.config.loss_cycle_target)
-            loss_component = target_profit_per_win / 0.95
-        else:
-            loss_component = 0.0
-
-        calculated_stake = min(martingale_component + loss_component, self.config.max_stake)
-        return round(calculated_stake, 4)
+        The ledger is updated before this helper is called, so the next stake
+        must use total outstanding losses and the remaining recovery execution
+        count. Do not multiply the last lost stake or the already-scaled stake
+        again.
+        """
+        return self._next_recovery_stake()
 
     def _apply_martingale_after_loss(self):
         """Legacy helper for applying martingale multiplier."""
@@ -559,7 +549,7 @@ class TradingBot:
 
             if mode == "BOTH":
                 # Direction is selected exactly once at the execution boundary.
-                # Tick-driven and cooldown-driven recovery now use the same path.
+                # Tick-driven and cooldown-driven recovery use the same path.
                 self._schedule_trade("BOTH")
                 return
 
@@ -1146,10 +1136,8 @@ class TradingBot:
                         self.config.recovery_wins_required,
                         self.config.loss_cycle_target,
                     )
-                    # A cleared loss ledger is necessary but not sufficient when
-                    # a recovery-win target is configured. Honor both settings:
-                    # finish only after the money ledger is clear AND the target
-                    # number of recovery wins has been completed.
+                    # Clearing the loss ledger is necessary but not sufficient
+                    # when a configured recovery-win target remains outstanding.
                     if (
                         self.recovery_loss_stake <= 0.005
                         and self.recovery_win_count >= required_recovery_wins

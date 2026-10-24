@@ -68,7 +68,10 @@ def test_both_recovery_executes_the_freshly_generated_direction_and_barrier():
     assert client.calls[0]["contract_type"] == "DIGITOVER"
     assert client.calls[0]["barrier"] == 7  # recovery barrier follows current direction
     assert bot.active_contract_type is None
-    assert any("BOTH EXECUTION SIGNAL | generator_digit=4 | type=DIGITOVER" in item.message for item in bot.logs)
+    assert any(
+        "BOTH EXECUTION SIGNAL | generator_digit=4 | type=DIGITOVER" in item.message
+        for item in bot.logs
+    )
 
 
 def test_loss_cycle_recovery_stake_does_not_compound_previous_trade_stake():
