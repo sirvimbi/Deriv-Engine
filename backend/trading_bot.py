@@ -1165,7 +1165,10 @@ class TradingBot:
                         self.predict = (
                             self.config.recovery_over_barrier if target_contract == "DIGITOVER" else self.config.recovery_under_barrier
                         )
-                        remaining_wins = max(1, self.config.loss_cycle_target - self.recovery_win_count)
+                        remaining_wins = max(
+                            1,
+                            self.config.loss_cycle_target - self.recovery_win_count,
+                        )
                         next_target = self.recovery_loss_stake / remaining_wins
                         self.stake = self._next_recovery_stake()
                         self.add_log(
