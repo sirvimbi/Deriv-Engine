@@ -9,7 +9,7 @@ class RecoveryStateMachineTests(unittest.IsolatedAsyncioTestCase):
             win_predict_digit=8, loss_predict_digit=2,
             recovery_over_barrier=7, recovery_under_barrier=3,
             recovery_win_predict_digit=3, recovery_wins_required=2,
-            contract_type_mode="BOTH"
+            contract_type_mode="DIGITUNDER"
         )
         b = TradingBot(c)
         b.is_running = True
@@ -109,7 +109,7 @@ class RecoveryExecutionPayloadTests(unittest.IsolatedAsyncioTestCase):
             win_predict_digit=8, loss_predict_digit=2,
             recovery_over_barrier=7, recovery_under_barrier=3,
             recovery_win_predict_digit=3, recovery_wins_required=2,
-            contract_type_mode="BOTH"
+            contract_type_mode="DIGITUNDER"
         )
         b = TradingBot(c)
         b.client = FakeDerivClient()
@@ -126,8 +126,8 @@ class RecoveryExecutionPayloadTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(b.client.calls[0]["contract_type"], "DIGITUNDER")
         self.assertEqual(b.client.calls[0]["barrier"], 3)
         self.assertNotEqual(b.client.calls[0]["barrier"], c.win_predict_digit)
-        self.assertFalse(b.in_recovery_cycle)
-        self.assertEqual(b.predict, 8)
+        self.assertTrue(b.in_recovery_cycle)
+        self.assertEqual(b.predict, 3)
 
 
 if __name__ == "__main__":

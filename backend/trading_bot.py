@@ -279,11 +279,23 @@ class TradingBot:
 
     def _calculate_recovery_stake(self, lost_trade_stake: float) -> float:
         """Calculate next recovery stake according to Martingale and Loss Cycle rules."""
-        # Recovery must be based on the configured base stake, not the previous
-        # (possibly already multiplied) trade stake. The state machine controls
-        # how many executions may use the multiplier; loss-cycle recovery is an
-        # additive component based on the outstanding-loss ledger.
-        return self._next_recovery_stake()
+        ref_stake = max(float(lost_trade_stake), self.stake)
+        if self.config.martingale_enabled and self.config.martingale > 0:
+            if ref_stake > self.config.base_stake:
+                martingale_component = ref_stake * self.config.martingale
+            else:
+                martingale_component = self.config.base_stake * self.config.martingale
+        else:
+            martingale_component = self.config.base_stake
+
+        if self.config.loss_cycle_target > 0:
+            target_profit_per_win = float(lost_trade_stake) / float(self.config.loss_cycle_target)
+            loss_component = target_profit_per_win / 0.95
+        else:
+            loss_component = 0.0
+
+        calculated_stake = min(martingale_component + loss_component, self.config.max_stake)
+        return round(calculated_stake, 4)
 
     def _apply_martingale_after_loss(self):
         """Legacy helper for applying martingale multiplier."""
@@ -841,18 +853,41 @@ class TradingBot:
             f"locked_contract={self.active_contract_type or 'NONE (BOTH rotates)'}"
         )
 
-        try:
-            buy_res = await self.client.buy_contract(
-                symbol=self.config.symbol,
-                contract_type=trade_contract_type,
-                amount=trade_stake,
-                duration=self.time_duration,
-                duration_unit=self.config.duration_unit,
-                barrier=trade_prediction,
-                currency=self.config.currency,
-                target_profit=recovery_target_profit,
-                max_amount=self.config.max_stake if recovery_target_profit is not None else None
-            )
+        buy_res = None
+        for attempt in range(1, 4):
+            try:
+                buy_res = await self.client.buy_contract(
+                    symbol=self.config.symbol,
+                    contract_type=trade_contract_type,
+                    amount=trade_stake,
+                    duration=self.time_duration,
+                    duration_unit=self.config.duration_unit,
+                    barrier=trade_prediction,
+                    currency=self.config.currency,
+                    target_profit=recovery_target_profit,
+                    max_amount=self.config.max_stake if recovery_target_profit is not None else None
+                )
+                break
+            except Exception as e:
+                err_msg = str(e)
+                if ("disconnected" in err_msg.lower() or "connection" in err_msg.lower() or "close" in err_msg.lower()) and attempt < 3:
+                    self.add_log("warn", f"Trade placement WebSocket glitch (attempt {attempt}/3): {err_msg}. Re-authenticating and retrying...")
+                    if self.config.api_token:
+                        try:
+                            await self.client.authorize(self.config.api_token)
+                        except Exception:
+                            pass
+                    await asyncio.sleep(0.5 * attempt)
+                else:
+                    self.add_log("error", f"Error placing trade: {err_msg}")
+                    self.is_trade_in_progress = False
+                    if err_msg.startswith("Insufficient Deriv balance:"):
+                        await self.stop("Insufficient account balance for configured stake")
+                    return
+
+        if not buy_res:
+            self.is_trade_in_progress = False
+            return
 
             # The client may resize a loss-cycle recovery trade from the live proposal payout.
             # Settlement must use the actual purchased stake.
@@ -935,14 +970,6 @@ class TradingBot:
                 self.client.unsubscribe_contract(contract_id)
                 self.add_log("error", f"Contract #{contract_id} status timeout.")
                 self.is_trade_in_progress = False
-
-        except Exception as e:
-            message = str(e)
-            self.add_log("error", f"Error placing trade: {message}")
-            self.is_trade_in_progress = False
-
-            if message.startswith("Insufficient Deriv balance:"):
-                await self.stop("Insufficient account balance for configured stake")
 
     @staticmethod
     def _extract_last_digit_from_quote(quote: Any, pip_size: Optional[int] = None) -> Optional[int]:
@@ -1263,11 +1290,7 @@ class TradingBot:
                     # Compose the next recovery stake after a loss using the lost trade stake
                     self.stake = self._calculate_recovery_stake(trade_stake)
                     self.recovery_phase = 1
-                    self.active_contract_type = (
-                        None
-                        if self.config.contract_type_mode.upper() == "BOTH"
-                        else trade_contract_type
-                    )
+                    self.active_contract_type = trade_contract_type
                     self.recovery_prediction_active = False
                     self.predict = self.config.loss_predict_digit
                     self.time_duration = self.config.duration

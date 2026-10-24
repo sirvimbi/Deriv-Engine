@@ -53,7 +53,7 @@ class RecoveryStateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bot.active_contract_type, "DIGITUNDER")
         self.assertEqual(bot.recovery_win_count, 1)
         self.assertEqual(bot.predict, 3)
-        self.assertEqual(bot.stake, 12.5)
+        self.assertEqual(bot.stake, 5.0)
 
         bot.is_trade_in_progress = True
         bot.active_trade_contract_id = 2

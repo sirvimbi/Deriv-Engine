@@ -213,50 +213,58 @@ class DerivClient:
     async def send_request(
         self,
         payload: Dict[str, Any],
-        exact_numeric_fields: Optional[Dict[str, str]] = None
+        exact_numeric_fields: Optional[Dict[str, str]] = None,
+        retries: int = 3
     ) -> Dict[str, Any]:
-        await self.connect()
-        if not self.ws or self.ws.state is not State.OPEN:
-            raise ConnectionError("Deriv WebSocket is not connected.")
+        last_exception: Optional[BaseException] = None
 
-        req_id = self._get_req_id()
-        payload["req_id"] = req_id
+        for attempt in range(1, retries + 1):
+            try:
+                await self.connect()
+                if not self.ws or self.ws.state is not State.OPEN:
+                    raise ConnectionError("Deriv WebSocket is not connected.")
 
-        future = asyncio.get_running_loop().create_future()
-        self.pending_requests[req_id] = future
+                req_id = self._get_req_id()
+                payload["req_id"] = req_id
 
-        try:
-            # Python floats are normally serialized safely, but Deriv validates
-            # buy.price by decimal precision. For price fields, preserve the
-            # exact two-decimal JSON token generated from Decimal instead of
-            # allowing a binary-float representation to leak into the wire
-            # payload.
-            encoded = json.dumps(payload, separators=(",", ":"), allow_nan=False)
-            for field, raw_number in (exact_numeric_fields or {}).items():
-                if field not in payload:
-                    raise ValueError(f"Exact numeric field '{field}' is missing from payload.")
-                Decimal(raw_number)
-                encoded_field = json.dumps(field, separators=(",", ":"))
-                encoded_value = json.dumps(payload[field], separators=(",", ":"))
-                encoded = encoded.replace(
-                    f"{encoded_field}:{encoded_value}",
-                    f"{encoded_field}:{raw_number}",
-                    1
+                future = asyncio.get_running_loop().create_future()
+                self.pending_requests[req_id] = future
+
+                try:
+                    encoded = json.dumps(payload, separators=(",", ":"), allow_nan=False)
+                    for field, raw_number in (exact_numeric_fields or {}).items():
+                        if field not in payload:
+                            raise ValueError(f"Exact numeric field '{field}' is missing from payload.")
+                        Decimal(raw_number)
+                        encoded_field = json.dumps(field, separators=(",", ":"))
+                        encoded_value = json.dumps(payload[field], separators=(",", ":"))
+                        encoded = encoded.replace(
+                            f"{encoded_field}:{encoded_value}",
+                            f"{encoded_field}:{raw_number}",
+                            1
+                        )
+                    await self.ws.send(encoded)
+                    return await asyncio.wait_for(future, timeout=15.0)
+                finally:
+                    self.pending_requests.pop(req_id, None)
+
+            except (ConnectionError, websockets.exceptions.ConnectionClosed, asyncio.TimeoutError) as exc:
+                last_exception = exc
+                logger.warning(
+                    f"WebSocket request failed on attempt {attempt}/{retries} ({exc}). Re-connecting..."
                 )
-            await self.ws.send(encoded)
-            return await asyncio.wait_for(future, timeout=15.0)
-        except asyncio.CancelledError as exc:
-            if not future.done():
-                future.cancel()
-            if not self.ws or self.ws.state is not State.OPEN:
-                raise ConnectionError("Deriv WebSocket connection was interrupted while waiting for a response.") from exc
-            raise
-        except Exception:
-            if not future.done():
-                future.cancel()
-            raise
-        finally:
-            self.pending_requests.pop(req_id, None)
+                self.ws = None
+                self.authorized = False
+                if self._auth_token:
+                    try:
+                        await self.authorize(self._auth_token)
+                    except Exception as reauth_err:
+                        logger.warning(f"Re-authorization failed on retry attempt {attempt}: {reauth_err}")
+                await asyncio.sleep(0.5 * attempt)
+
+        if last_exception:
+            raise last_exception
+        raise ConnectionError("Deriv WebSocket request failed after retries.")
 
     async def _listen_loop(self):
         try:
