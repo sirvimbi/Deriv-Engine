@@ -103,7 +103,7 @@ class FakeDerivClient:
 
 
 class RecoveryExecutionPayloadTests(unittest.IsolatedAsyncioTestCase):
-    async def test_phase_two_sends_recovery_prediction_and_locked_contract(self):
+    async def test_phase_two_uses_fresh_both_direction_and_matching_recovery_barrier(self):
         c = TradingConfig(
             base_stake=5, max_stake=500, martingale=2,
             win_predict_digit=8, loss_predict_digit=2,
@@ -117,10 +117,13 @@ class RecoveryExecutionPayloadTests(unittest.IsolatedAsyncioTestCase):
         b.in_recovery_cycle = True
         b.recovery_phase = 2
         b.recovery_win_count = 1
-        b.active_contract_type = "DIGITUNDER"
+        b.active_contract_type = "DIGITOVER"
         b.stake = 20
+        b._next_both_direction = lambda: "DIGITUNDER"
+        b.both_generator_digit = 8
+        b.both_direction_window = 0
 
-        await b._place_trade("DIGITOVER")
+        await b._place_trade("BOTH")
 
         self.assertEqual(len(b.client.calls), 1)
         self.assertEqual(b.client.calls[0]["contract_type"], "DIGITUNDER")
