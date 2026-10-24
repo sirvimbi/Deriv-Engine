@@ -729,6 +729,34 @@ class TradingBot:
         if target_contract:
             self._schedule_trade(target_contract)
 
+    async def _trigger_next_trade_after_settlement(self):
+        """Immediately trigger the next trade after contract settlement when no cooldown is active."""
+        if not self.is_running or self.is_trade_in_progress:
+            return
+
+        await asyncio.sleep(0.05)
+
+        if not self.is_running or self.is_trade_in_progress:
+            return
+
+        if self.recovery_cooldown_until > time.monotonic():
+            return
+
+        mode = self.config.contract_type_mode.upper()
+        if mode == "BOTH":
+            direction = self._next_both_direction()
+            if direction is None:
+                return
+            self._schedule_trade(direction)
+            return
+
+        target_contract = self.active_contract_type or (
+            "DIGITUNDER" if mode == "DIGITUNDER" else (
+            "DIGITOVER" if mode == "DIGITOVER" else mode
+        ))
+        if target_contract:
+            self._schedule_trade(target_contract)
+
     def _barrier_for_contract(self, contract_type: str) -> Optional[int]:
         """Return the barrier belonging to the actual contract type."""
         contract_type = contract_type.upper()
@@ -1370,15 +1398,18 @@ class TradingBot:
             except Exception:
                 pass
 
-        # The contract callback runs inside Deriv's listener. Re-arm recovery
-        # in a separate task so the listener is never blocked waiting for the
-        # next trade, and do not depend on another market tick arriving.
-        if self.is_running and self.recovery_cooldown_until > time.monotonic() and not self.is_trade_in_progress:
-            if self._recovery_cooldown_task and not self._recovery_cooldown_task.done():
-                self._recovery_cooldown_task.cancel()
-            self._recovery_cooldown_task = asyncio.create_task(
-                self._schedule_recovery_after_settlement()
-            )
+        # The contract callback runs inside Deriv's listener. Re-arm next trade
+        # execution in a separate task so the listener is never blocked, and
+        # do not depend solely on another market tick arriving.
+        if self.is_running and not self.is_trade_in_progress:
+            if self.recovery_cooldown_until > time.monotonic():
+                if self._recovery_cooldown_task and not self._recovery_cooldown_task.done():
+                    self._recovery_cooldown_task.cancel()
+                self._recovery_cooldown_task = asyncio.create_task(
+                    self._schedule_recovery_after_settlement()
+                )
+            else:
+                asyncio.create_task(self._trigger_next_trade_after_settlement())
 
     def get_status(self) -> BotStatus:
         win_rate = (self.total_wins / self.runs * 100.0) if self.runs > 0 else 0.0
