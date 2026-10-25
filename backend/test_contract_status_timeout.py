@@ -176,3 +176,33 @@ def test_initial_contract_snapshot_is_processed_even_without_listener_callback()
     assert bot.total_wins == 1
     assert bot.is_trade_in_progress is False
     assert 12349 in bot.client.unsubscribed
+
+
+def test_done_event_without_settlement_is_not_treated_as_recovered():
+    bot = TradingBot(TradingConfig(contract_type_mode="BOTH"))
+    bot.is_running = False
+    contract_id = 12350
+    bot.active_trade_contract_id = contract_id
+    sold_snapshot = {
+        "contract_id": contract_id,
+        "contract_type": "DIGITOVER",
+        "is_sold": 1,
+        "status": "won",
+        "profit": 0.5,
+    }
+    bot.client = SnapshotClient([sold_snapshot])
+    done_event = asyncio.Event()
+
+    async def incomplete_handler(update):
+        # Simulates a terminal callback that signals completion for a fatal
+        # mismatch/error but does not add the contract to the settled ledger.
+        done_event.set()
+
+    recovered = asyncio.run(
+        bot._reconcile_contract_status_after_timeout(
+            contract_id, incomplete_handler, done_event
+        )
+    )
+
+    assert recovered is False
+    assert contract_id not in bot.settled_contract_ids
