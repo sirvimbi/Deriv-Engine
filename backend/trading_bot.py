@@ -1031,20 +1031,26 @@ class TradingBot:
                 f"CONTRACT STATUS RECOVERY UNAVAILABLE | id={contract_id} | "
                 "client does not support one-shot contract status queries."
             )
-            return contract_id in self.settled_contract_ids or done_event.is_set()
+            return contract_id in self.settled_contract_ids
 
         for attempt in range(1, 4):
-            if contract_id in self.settled_contract_ids or done_event.is_set():
+            if contract_id in self.settled_contract_ids:
                 done_event.set()
                 return True
+            # done_event can also be set for a fatal contract-type mismatch;
+            # that must never be mistaken for a confirmed settlement.
+            if done_event.is_set():
+                return False
 
             try:
                 snapshot = await asyncio.wait_for(status_getter(contract_id), timeout=6.0)
                 if isinstance(snapshot, dict) and snapshot:
                     await update_callback(snapshot)
-                    if contract_id in self.settled_contract_ids or done_event.is_set():
+                    if contract_id in self.settled_contract_ids:
                         done_event.set()
                         return True
+                    if done_event.is_set():
+                        return False
                     if snapshot.get("is_sold"):
                         # A sold snapshot should have reached settlement above.
                         self.add_log(
@@ -1076,7 +1082,7 @@ class TradingBot:
             if attempt < 3:
                 await asyncio.sleep(0.5)
 
-        return contract_id in self.settled_contract_ids or done_event.is_set()
+        return contract_id in self.settled_contract_ids
 
     async def _stop_for_unconfirmed_contract_status(self, contract_id: int, reason: str):
         self.add_log(
