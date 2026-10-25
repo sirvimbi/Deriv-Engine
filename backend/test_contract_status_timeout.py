@@ -125,3 +125,54 @@ def test_get_contract_status_reports_missing_snapshot():
         assert "no proposal_open_contract snapshot" in str(exc)
     else:
         raise AssertionError("A missing contract snapshot must be reported.")
+
+
+class InitialSnapshotClient:
+    def __init__(self, snapshot):
+        self.snapshot = snapshot
+        self.callback = None
+        self.buy_calls = []
+        self.unsubscribed = []
+
+    async def buy_contract(self, **kwargs):
+        self.buy_calls.append(kwargs)
+        return {"contract_id": 12349, "buy_price": kwargs["amount"], "stake": kwargs["amount"]}
+
+    async def subscribe_contract(self, contract_id, callback):
+        self.callback = callback
+        return {"proposal_open_contract": self.snapshot}
+
+    def unsubscribe_contract(self, contract_id):
+        self.unsubscribed.append(contract_id)
+
+
+def test_initial_contract_snapshot_is_processed_even_without_listener_callback():
+    snapshot = {
+        "contract_id": 12349,
+        "contract_type": "DIGITOVER",
+        "is_sold": 1,
+        "status": "won",
+        "profit": 0.50,
+        "buy_price": "0.50",
+        "entry_spot": "100.08",
+        "exit_spot": "100.09",
+    }
+    bot = TradingBot(TradingConfig(contract_type_mode="BOTH", base_stake=0.50))
+    bot.is_running = True
+    bot.client = InitialSnapshotClient(snapshot)
+    bot._next_both_direction = lambda: "DIGITOVER"
+    bot.both_generator_digit = 8
+
+    async def no_next_trade_in_test():
+        return None
+
+    bot._trigger_next_trade_after_settlement = no_next_trade_in_test
+
+    asyncio.run(bot._place_trade("BOTH"))
+
+    assert bot.client.buy_calls[0]["contract_type"] == "DIGITOVER"
+    assert 12349 in bot.settled_contract_ids
+    assert bot.runs == 1
+    assert bot.total_wins == 1
+    assert bot.is_trade_in_progress is False
+    assert 12349 in bot.client.unsubscribed
