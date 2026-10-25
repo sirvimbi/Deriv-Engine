@@ -617,6 +617,16 @@ class TradingBot:
         self.is_trade_in_progress = True
         asyncio.create_task(self._place_trade(contract_type))
 
+    async def _retry_after_rejected_proposal(self):
+        """Retry a rejected, unpurchased proposal without blocking the event loop."""
+        await asyncio.sleep(1.0)
+        if not self.is_running or self.is_trade_in_progress:
+            return
+        self._schedule_trade(
+            "BOTH" if self.config.contract_type_mode.upper() == "BOTH"
+            else (self.config.contract_type_mode.upper())
+        )
+
     def _configured_loss_cooldown_seconds(self) -> int:
         return (
             max(0, int(self.config.loss_cooldown_hours)) * 3600
@@ -873,6 +883,16 @@ class TradingBot:
                     self.is_trade_in_progress = False
                     if err_msg.startswith("Insufficient Deriv balance:"):
                         await self.stop("Insufficient account balance for configured stake")
+                    elif "unknown contract proposal" in err_msg.lower() and self.is_running:
+                        # No contract was bought. Retry the next execution with a
+                        # fresh proposal/direction after a short delay, rather than
+                        # leaving the running bot idle after a stale proposal.
+                        self.add_log(
+                            "warn",
+                            "PROPOSAL RECOVERY | no contract was purchased; "
+                            "retrying with a fresh execution in 1 second."
+                        )
+                        asyncio.create_task(self._retry_after_rejected_proposal())
                     return
 
         if not buy_res:
