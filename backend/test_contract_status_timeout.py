@@ -229,4 +229,5 @@ def test_buy_contract_refreshes_unknown_proposal_and_retries_once_successfully()
         duration=1, duration_unit="t", barrier=6, currency="USD",
     ))
     assert result["contract_id"] == 98765
+    assert [item["proposal"] for item in requests if item.get("proposal") == 1] == [1, 1]
     assert [item["buy"] for item in requests if item.get("buy")] == ["proposal-1", "proposal-2"]
