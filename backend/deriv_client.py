@@ -520,7 +520,8 @@ class DerivClient:
         barrier: Optional[int] = None,
         currency: str = "USD",
         target_profit: Optional[float] = None,
-        max_amount: Optional[float] = None
+        max_amount: Optional[float] = None,
+        _proposal_retry_attempt: int = 0
     ) -> Dict[str, Any]:
         """
         Buy a contract from a live proposal.
@@ -670,9 +671,30 @@ class DerivClient:
             exact_numeric_fields={"price": buy_price_text}
         )
         if "error" in response:
-            raise Exception(
-                response["error"].get("message", "Contract purchase failed")
-            )
+            error = response.get("error") or {}
+            error_message = str(error.get("message", "Contract purchase failed"))
+            if (
+                "unknown contract proposal" in error_message.lower()
+                and _proposal_retry_attempt < 2
+            ):
+                logger.warning(
+                    "Deriv rejected a stale/unknown proposal; fetching a fresh proposal "
+                    "and retrying purchase (attempt %d/2).",
+                    _proposal_retry_attempt + 1,
+                )
+                return await self.buy_contract(
+                    symbol=symbol,
+                    contract_type=contract_type,
+                    amount=float(normalized_amount),
+                    duration=duration,
+                    duration_unit=duration_unit,
+                    barrier=barrier,
+                    currency=currency,
+                    target_profit=float(target_profit_decimal) if target_profit_decimal is not None else None,
+                    max_amount=max_amount,
+                    _proposal_retry_attempt=_proposal_retry_attempt + 1,
+                )
+            raise Exception(error_message)
 
         buy = response.get("buy", {})
         if isinstance(buy, dict):
