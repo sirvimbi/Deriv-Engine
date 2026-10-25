@@ -682,10 +682,10 @@ class TradingBot:
 
         mode = self.config.contract_type_mode.upper()
         if mode == "BOTH":
-            direction = self._next_both_direction()
-            if direction is None:
-                return
-            self._schedule_trade(direction)
+            # Direction selection belongs only to _place_trade(). Scheduling a
+            # preselected direction here would consume a digit twice and let a
+            # neutral digit 5 terminate the settlement-to-next-trade handoff.
+            self._schedule_trade("BOTH")
             return
 
         target_contract = self.active_contract_type or (
@@ -716,15 +716,24 @@ class TradingBot:
         # and cooldown paths cannot silently favor the previous contract.
         both_generator_digit: Optional[int] = None
         if self.config.contract_type_mode.upper() == "BOTH":
-            generated_direction = self._next_both_direction()
-            both_generator_digit = self.both_generator_digit
-            if generated_direction is None:
+            # Digit 5 is a neutral generator result, not a completed trade.
+            # Keep this execution slot reserved and draw again immediately,
+            # rather than depending on a separate market tick to re-arm the bot.
+            generated_direction: Optional[str] = None
+            while self.is_running and generated_direction is None:
+                generated_direction = self._next_both_direction()
+                both_generator_digit = self.both_generator_digit
+                if generated_direction is None:
+                    self.add_log(
+                        "info",
+                        f"BOTH SIGNAL SKIPPED | generator_digit={both_generator_digit} | "
+                        "result=BREAK_EVEN | no contract placed; retrying generator."
+                    )
+                    # Yield to the event loop so stop/config/status operations
+                    # remain responsive even if several neutral digits occur.
+                    await asyncio.sleep(0)
+            if not self.is_running:
                 self.is_trade_in_progress = False
-                self.add_log(
-                    "info",
-                    f"BOTH SIGNAL SKIPPED | generator_digit={both_generator_digit} | "
-                    "result=BREAK_EVEN | no contract placed."
-                )
                 return
             contract_type = generated_direction
             self.active_contract_type = None
