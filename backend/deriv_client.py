@@ -690,6 +690,24 @@ class DerivClient:
             raise Exception(response["error"].get("message", "Contract subscription failed"))
         return response
 
+    async def get_contract_status(self, contract_id: int) -> Dict[str, Any]:
+        """Fetch a one-shot snapshot without creating another subscription."""
+        response = await self.send_request({
+            "proposal_open_contract": 1,
+            "contract_id": int(contract_id),
+        })
+        if "error" in response:
+            error = response.get("error") or {}
+            raise RuntimeError(
+                error.get("message", "Contract status request failed")
+            )
+        contract = response.get("proposal_open_contract")
+        if not isinstance(contract, dict) or not contract:
+            raise RuntimeError(
+                f"Deriv returned no proposal_open_contract snapshot for contract {contract_id}."
+            )
+        return contract
+
     def unsubscribe_contract(self, contract_id: int):
         self.contract_callbacks.pop(contract_id, None)
 
