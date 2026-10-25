@@ -943,23 +943,149 @@ class TradingBot:
                 )
                 done_event.set()
 
-        await self.client.subscribe_contract(contract_id, _on_contract_update)
-        
-        # Timeout safety after 30 seconds. A settlement callback may
-        # have completed the trade immediately before the wait timed out,
-        # or the bot may have stopped because the settlement triggered a
-        # risk limit. In either case this is a normal monitor shutdown,
-        # not a failed contract.
+        # The subscription request itself includes a point-in-time snapshot.
+        # Process it explicitly as well as listener callbacks: depending on
+        # timing, the first response can arrive before callback dispatch is
+        # fully attached. Settlement processing is idempotent by contract ID.
+        try:
+            subscription_response = await self.client.subscribe_contract(contract_id, _on_contract_update)
+            initial_state = (
+                subscription_response.get("proposal_open_contract")
+                if isinstance(subscription_response, dict)
+                else None
+            )
+            if isinstance(initial_state, dict):
+                await _on_contract_update(initial_state)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.add_log(
+                "warn",
+                f"CONTRACT STATUS SUBSCRIPTION FAILED | id={contract_id} | {exc}. "
+                "Attempting one-shot contract reconciliation."
+            )
+            reconciled = await self._reconcile_contract_status_after_timeout(
+                contract_id, _on_contract_update, done_event
+            )
+            if reconciled:
+                return
+            await self._stop_for_unconfirmed_contract_status(contract_id, "status subscription failed")
+            return
+
+        # Do not assume a timeout means the trade settled. Query Deriv for the
+        # actual contract state, and only continue trading after a terminal
+        # settlement has been processed. If state cannot be confirmed, stop
+        # new entries so an unknown live contract cannot overlap another trade.
         try:
             await asyncio.wait_for(done_event.wait(), timeout=30.0)
         except asyncio.TimeoutError:
-            if contract_id in self.settled_contract_ids or not self.is_running:
+            if contract_id in self.settled_contract_ids:
                 self.client.unsubscribe_contract(contract_id)
                 self.is_trade_in_progress = False
                 return
-            self.client.unsubscribe_contract(contract_id)
-            self.add_log("error", f"Contract #{contract_id} status timeout.")
-            self.is_trade_in_progress = False
+            if not self.is_running:
+                self.is_trade_in_progress = False
+                return
+
+            self.add_log(
+                "warn",
+                f"CONTRACT STATUS TIMEOUT | id={contract_id} | no terminal update in 30s. "
+                "Reconciling against Deriv before deciding whether trading can resume."
+            )
+            reconciled = await self._reconcile_contract_status_after_timeout(
+                contract_id, _on_contract_update, done_event
+            )
+            if reconciled:
+                self.client.unsubscribe_contract(contract_id)
+                self.add_log(
+                    "info",
+                    f"CONTRACT STATUS RECOVERED | id={contract_id} | settlement processed; "
+                    "normal next-trade scheduling resumed."
+                )
+                return
+
+            # Keep the contract callback registered so a late final update can
+            # still be accounted for. Stop tick entries until this contract's
+            # settlement is known; placing another trade here could overlap an
+            # open position or double-count a late settlement.
+            await self._stop_for_unconfirmed_contract_status(
+                contract_id, "no terminal settlement could be confirmed after status timeout"
+            )
+            return
+
+    async def _reconcile_contract_status_after_timeout(
+        self,
+        contract_id: int,
+        update_callback: Callable,
+        done_event: asyncio.Event,
+    ) -> bool:
+        """Query Deriv for a contract snapshot after its stream stops updating.
+
+        Returns True only when a terminal settlement has actually been passed
+        through the normal idempotent settlement callback.
+        """
+        status_getter = getattr(self.client, "get_contract_status", None)
+        if not callable(status_getter):
+            self.add_log(
+                "error",
+                f"CONTRACT STATUS RECOVERY UNAVAILABLE | id={contract_id} | "
+                "client does not support one-shot contract status queries."
+            )
+            return contract_id in self.settled_contract_ids or done_event.is_set()
+
+        for attempt in range(1, 4):
+            if contract_id in self.settled_contract_ids or done_event.is_set():
+                done_event.set()
+                return True
+
+            try:
+                snapshot = await asyncio.wait_for(status_getter(contract_id), timeout=6.0)
+                if isinstance(snapshot, dict) and snapshot:
+                    await update_callback(snapshot)
+                    if contract_id in self.settled_contract_ids or done_event.is_set():
+                        done_event.set()
+                        return True
+                    if snapshot.get("is_sold"):
+                        # A sold snapshot should have reached settlement above.
+                        self.add_log(
+                            "warn",
+                            f"CONTRACT STATUS RECOVERY | id={contract_id} | Deriv returned a sold "
+                            "contract but settlement callback did not complete."
+                        )
+                    else:
+                        self.add_log(
+                            "warn",
+                            f"CONTRACT STATUS RECOVERY | id={contract_id} | contract is still open "
+                            f"(attempt {attempt}/3); no replacement trade will be opened."
+                        )
+                else:
+                    self.add_log(
+                        "warn",
+                        f"CONTRACT STATUS RECOVERY | id={contract_id} | empty status snapshot "
+                        f"(attempt {attempt}/3)."
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self.add_log(
+                    "warn",
+                    f"CONTRACT STATUS RECOVERY FAILED | id={contract_id} | "
+                    f"attempt={attempt}/3 | {exc}"
+                )
+
+            if attempt < 3:
+                await asyncio.sleep(0.5)
+
+        return contract_id in self.settled_contract_ids or done_event.is_set()
+
+    async def _stop_for_unconfirmed_contract_status(self, contract_id: int, reason: str):
+        self.add_log(
+            "error",
+            f"CONTRACT STATUS UNCONFIRMED | id={contract_id} | {reason}. "
+            "Bot is stopping new entries to avoid overlapping an unsettled contract."
+        )
+        self.is_trade_in_progress = False
+        await self.stop(f"Contract #{contract_id} settlement unconfirmed")
 
     @staticmethod
     def _extract_last_digit_from_quote(quote: Any, pip_size: Optional[int] = None) -> Optional[int]:
