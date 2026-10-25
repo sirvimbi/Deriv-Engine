@@ -9,7 +9,7 @@ class RecoveryStateMachineTests(unittest.IsolatedAsyncioTestCase):
             win_predict_digit=8, loss_predict_digit=2,
             recovery_over_barrier=7, recovery_under_barrier=3,
             recovery_win_predict_digit=3, recovery_wins_required=2,
-            contract_type_mode="DIGITUNDER"
+            contract_type_mode="BOTH"
         )
         b = TradingBot(c)
         b.is_running = True
@@ -110,7 +110,7 @@ class RecoveryExecutionPayloadTests(unittest.IsolatedAsyncioTestCase):
             win_predict_digit=8, loss_predict_digit=2,
             recovery_over_barrier=7, recovery_under_barrier=3,
             recovery_win_predict_digit=3, recovery_wins_required=2,
-            contract_type_mode="DIGITUNDER"
+            contract_type_mode="BOTH"
         )
         b = TradingBot(c)
         b.client = FakeDerivClient()

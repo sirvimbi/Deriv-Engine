@@ -216,13 +216,7 @@ def test_buy_contract_refreshes_unknown_proposal_and_retries_once_successfully()
         requests.append(dict(payload))
         if payload.get("proposal") == 1:
             proposal_number = sum(1 for item in requests if item.get("proposal") == 1)
-            return {
-                "proposal": {
-                    "id": f"proposal-{proposal_number}",
-                    "ask_price": 1.0,
-                    "payout": 1.95,
-                }
-            }
+            return {"proposal": {"id": f"proposal-{proposal_number}", "ask_price": 1.0, "payout": 1.95}}
         if payload.get("buy"):
             if payload["buy"] == "proposal-1":
                 return {"error": {"message": "Unknown contract proposal"}}
@@ -230,19 +224,10 @@ def test_buy_contract_refreshes_unknown_proposal_and_retries_once_successfully()
         raise AssertionError(f"Unexpected Deriv request: {payload}")
 
     client.send_request = fake_send_request
-
-    result = asyncio.run(
-        client.buy_contract(
-            symbol="R_50",
-            contract_type="DIGITOVER",
-            amount=1.0,
-            duration=1,
-            duration_unit="t",
-            barrier=6,
-            currency="USD",
-        )
-    )
-
+    result = asyncio.run(client.buy_contract(
+        symbol="R_50", contract_type="DIGITOVER", amount=1.0,
+        duration=1, duration_unit="t", barrier=6, currency="USD",
+    ))
     assert result["contract_id"] == 98765
     assert [item["proposal"] for item in requests if item.get("proposal") == 1] == [1, 1]
     assert [item["buy"] for item in requests if item.get("buy")] == ["proposal-1", "proposal-2"]

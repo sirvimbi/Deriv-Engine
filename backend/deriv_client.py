@@ -673,10 +673,7 @@ class DerivClient:
         if "error" in response:
             error = response.get("error") or {}
             error_message = str(error.get("message", "Contract purchase failed"))
-            if (
-                "unknown contract proposal" in error_message.lower()
-                and _proposal_retry_attempt < 2
-            ):
+            if "unknown contract proposal" in error_message.lower() and _proposal_retry_attempt < 2:
                 logger.warning(
                     "Deriv rejected a stale/unknown proposal; fetching a fresh proposal "
                     "and retrying purchase (attempt %d/2).",

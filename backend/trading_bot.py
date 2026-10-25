@@ -622,10 +622,8 @@ class TradingBot:
         await asyncio.sleep(1.0)
         if not self.is_running or self.is_trade_in_progress:
             return
-        self._schedule_trade(
-            "BOTH" if self.config.contract_type_mode.upper() == "BOTH"
-            else (self.config.contract_type_mode.upper())
-        )
+        mode = self.config.contract_type_mode.upper()
+        self._schedule_trade("BOTH" if mode == "BOTH" else mode)
 
     def _configured_loss_cooldown_seconds(self) -> int:
         return (
@@ -884,9 +882,6 @@ class TradingBot:
                     if err_msg.startswith("Insufficient Deriv balance:"):
                         await self.stop("Insufficient account balance for configured stake")
                     elif "unknown contract proposal" in err_msg.lower() and self.is_running:
-                        # No contract was bought. Retry the next execution with a
-                        # fresh proposal/direction after a short delay, rather than
-                        # leaving the running bot idle after a stale proposal.
                         self.add_log(
                             "warn",
                             "PROPOSAL RECOVERY | no contract was purchased; "
@@ -1446,7 +1441,11 @@ class TradingBot:
                     # Compose the next recovery stake after a loss using the lost trade stake
                     self.stake = self._calculate_recovery_stake(trade_stake)
                     self.recovery_phase = 1
-                    self.active_contract_type = trade_contract_type
+                    self.active_contract_type = (
+                        None
+                        if self.config.contract_type_mode.upper() == "BOTH"
+                        else trade_contract_type
+                    )
                     self.recovery_prediction_active = False
                     self.predict = self.config.loss_predict_digit
                     self.time_duration = self.config.duration
