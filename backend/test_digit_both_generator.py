@@ -84,6 +84,66 @@ def test_next_both_direction_uses_fresh_random_digit():
     assert bot.both_generator_digit == 5
 
 
+def test_place_trade_retries_break_even_digit_until_actionable_direction():
+    bot = make_bot()
+    bot.is_running = True
+    bot.is_trade_in_progress = True
+
+    class SequenceRng:
+        def __init__(self):
+            self.values = iter([5, 8])
+            self.calls = 0
+
+        def randint(self, start, end):
+            assert (start, end) == (0, 9)
+            self.calls += 1
+            return next(self.values)
+
+    class RecordingClient:
+        def __init__(self):
+            self.calls = []
+
+        async def buy_contract(self, **kwargs):
+            self.calls.append(kwargs)
+            # No contract ID is needed for this generator/dispatch regression.
+            return {}
+
+    rng = SequenceRng()
+    client = RecordingClient()
+    bot._both_rng = rng
+    bot.client = client
+
+    asyncio.run(bot._place_trade("BOTH"))
+
+    assert rng.calls == 2
+    assert bot.both_generator_digit == 8
+    assert len(client.calls) == 1
+    assert client.calls[0]["contract_type"] in ("DIGITOVER", "DIGITUNDER")
+    assert any(
+        "BOTH SIGNAL SKIPPED" in item.message
+        and "result=BREAK_EVEN" in item.message
+        and "retrying generator" in item.message
+        for item in bot.logs
+    )
+
+
+def test_settlement_handoff_does_not_consume_both_generator_digit():
+    bot = make_bot()
+    bot.is_running = True
+    scheduled = []
+    bot._schedule_trade = lambda contract_type: scheduled.append(contract_type)
+
+    class ForbiddenRng:
+        def randint(self, start, end):
+            raise AssertionError("BOTH direction must be generated at execution time only.")
+
+    bot._both_rng = ForbiddenRng()
+
+    asyncio.run(bot._trigger_next_trade_after_settlement())
+
+    assert scheduled == ["BOTH"]
+
+
 def test_both_recovery_does_not_lock_to_previous_contract():
     bot = make_bot(loss_cycle_target=2)
     bot.active_trade_contract_id = 123
