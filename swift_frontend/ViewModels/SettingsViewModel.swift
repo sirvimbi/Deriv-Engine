@@ -81,6 +81,8 @@ public class SettingsViewModel: ObservableObject {
         config.martingale = min(max(config.martingale, 0), 50)
         config.take_profit = min(max(config.take_profit, 0), 500)
         config.stop_loss = min(max(config.stop_loss, 0), 1000)
+        config.auto_restart_delay_hours = min(max(config.auto_restart_delay_hours, 0), 24)
+        config.auto_restart_delay_minutes = min(max(config.auto_restart_delay_minutes, 0), 59)
     }
 
     /// Switch the actual authenticated Deriv trading account and refresh the

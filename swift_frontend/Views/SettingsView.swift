@@ -199,7 +199,19 @@ public struct SettingsView: View {
             }
             Toggle("Auto-start after Take Profit / Stop Loss", isOn: $viewModel.config.auto_restart_after_stop)
                 .toggleStyle(.switch)
-            Text("When enabled, a Take Profit or Hard Stop Loss starts a fresh bot session automatically after 1 minute. A manual stop does not trigger auto-restart.")
+            dropdownRow("Auto-start Delay") {
+                HStack(spacing: 8) {
+                    IntegerDropdown("Auto-start Hours", value: $viewModel.config.auto_restart_delay_hours, range: 0...24)
+                    Text("hr")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    IntegerDropdown("Auto-start Minutes", value: $viewModel.config.auto_restart_delay_minutes, range: 0...59)
+                    Text("min")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text("When enabled, a Take Profit or Hard Stop Loss starts a fresh bot session after the delay above. Set 00 hr, 00 min to restart immediately. A manual stop does not trigger auto-restart.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             dropdownRow("Max Runs / Trades") {
@@ -378,7 +390,7 @@ private extension SettingsView {
             "",
             "Take Profit: $\(c.take_profit)",
             "Hard Stop Loss: $\(c.stop_loss)",
-            "Auto-start after Take Profit / Stop Loss: \(c.auto_restart_after_stop ? "ON (1 minute)" : "OFF")",
+            "Auto-start after Take Profit / Stop Loss: \(c.auto_restart_after_stop ? String(format: "ON (%02d:%02d)", c.auto_restart_delay_hours, c.auto_restart_delay_minutes) : "OFF")",
             "Max Runs / Trades: \(c.max_runs)",
             "Max Loss Streak: \(c.max_loss_streak)",
             String(format: "Cooldown After Loss: %02d:%02d:%02d", c.loss_cooldown_hours, c.loss_cooldown_minutes, c.loss_cooldown_seconds),
