@@ -10,6 +10,10 @@ public struct TradingConfig: Codable, Equatable {
     public var martingale: Double
     public var take_profit: Double
     public var stop_loss: Double
+    public var adaptive_performance_enabled: Bool
+    public var adaptive_target_win_rate: Double
+    public var adaptive_rolling_window: Int
+    public var adaptive_stop_loss_enabled: Bool
     public var auto_restart_after_stop: Bool
     public var auto_restart_after_take_profit: Bool
     public var auto_restart_delay_hours: Int
@@ -50,6 +54,10 @@ public struct TradingConfig: Codable, Equatable {
         martingale: Double = 2.0,
         take_profit: Double = 500.0,
         stop_loss: Double = 500.0,
+        adaptive_performance_enabled: Bool = false,
+        adaptive_target_win_rate: Double = 66.0,
+        adaptive_rolling_window: Int = 50,
+        adaptive_stop_loss_enabled: Bool = false,
         auto_restart_after_stop: Bool = false,
         auto_restart_after_take_profit: Bool = false,
         auto_restart_delay_hours: Int = 0,
@@ -87,6 +95,10 @@ public struct TradingConfig: Codable, Equatable {
         self.martingale = martingale
         self.take_profit = take_profit
         self.stop_loss = stop_loss
+        self.adaptive_performance_enabled = adaptive_performance_enabled
+        self.adaptive_target_win_rate = adaptive_target_win_rate
+        self.adaptive_rolling_window = adaptive_rolling_window
+        self.adaptive_stop_loss_enabled = adaptive_stop_loss_enabled
         self.auto_restart_after_stop = auto_restart_after_stop
         self.auto_restart_after_take_profit = auto_restart_after_take_profit
         self.auto_restart_delay_hours = auto_restart_delay_hours
@@ -119,6 +131,7 @@ public struct TradingConfig: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case api_token, app_id, symbol, base_stake, max_stake
         case martingale_enabled, martingale, take_profit, stop_loss
+        case adaptive_performance_enabled, adaptive_target_win_rate, adaptive_rolling_window, adaptive_stop_loss_enabled
         case auto_restart_after_stop, auto_restart_after_take_profit
         case auto_restart_delay_hours, auto_restart_delay_minutes
         case max_runs, max_loss_streak, loss_cooldown_hours, loss_cooldown_minutes, loss_cooldown_seconds
@@ -144,6 +157,10 @@ public struct TradingConfig: Codable, Equatable {
         try c.encode(martingale, forKey: .martingale)
         try c.encode(take_profit, forKey: .take_profit)
         try c.encode(stop_loss, forKey: .stop_loss)
+        try c.encode(adaptive_performance_enabled, forKey: .adaptive_performance_enabled)
+        try c.encode(adaptive_target_win_rate, forKey: .adaptive_target_win_rate)
+        try c.encode(adaptive_rolling_window, forKey: .adaptive_rolling_window)
+        try c.encode(adaptive_stop_loss_enabled, forKey: .adaptive_stop_loss_enabled)
 
         // One source of truth: auto_restart_after_stop.
         try c.encode(auto_restart_after_stop, forKey: .auto_restart_after_stop)
@@ -193,6 +210,10 @@ public struct TradingConfig: Codable, Equatable {
         martingale = try c.decodeIfPresent(Double.self, forKey: .martingale) ?? 2.0
         take_profit = try c.decodeIfPresent(Double.self, forKey: .take_profit) ?? 500.0
         stop_loss = min(max(try c.decodeIfPresent(Double.self, forKey: .stop_loss) ?? 500.0, 0), 1000)
+        adaptive_performance_enabled = try c.decodeIfPresent(Bool.self, forKey: .adaptive_performance_enabled) ?? false
+        adaptive_target_win_rate = min(max(try c.decodeIfPresent(Double.self, forKey: .adaptive_target_win_rate) ?? 66.0, 50), 90)
+        adaptive_rolling_window = min(max(try c.decodeIfPresent(Int.self, forKey: .adaptive_rolling_window) ?? 50, 30), 200)
+        adaptive_stop_loss_enabled = try c.decodeIfPresent(Bool.self, forKey: .adaptive_stop_loss_enabled) ?? false
         let autoStop = try c.decodeIfPresent(Bool.self, forKey: .auto_restart_after_stop)
         let autoTP = try c.decodeIfPresent(Bool.self, forKey: .auto_restart_after_take_profit)
         let resolvedAutoRestart = (autoStop == true) || (autoTP == true)

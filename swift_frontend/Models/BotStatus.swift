@@ -14,6 +14,11 @@ public struct BotStatus: Codable {
     public let total_wins: Int
     public let total_losses: Int
     public let win_rate: Double
+    public let rolling_win_rate: Double?
+    public let rolling_sample_size: Int?
+    public let active_take_profit: Double?
+    public let active_stop_loss: Double?
+    public let adaptive_mode: String?
     public let current_stake: Double
     public let current_predict: Int
     public let loss_streak: Int

@@ -205,6 +205,11 @@ public class DashboardViewModel: ObservableObject {
             total_wins: current.total_wins,
             total_losses: current.total_losses,
             win_rate: current.win_rate,
+            rolling_win_rate: current.rolling_win_rate,
+            rolling_sample_size: current.rolling_sample_size,
+            active_take_profit: current.active_take_profit,
+            active_stop_loss: current.active_stop_loss,
+            adaptive_mode: current.adaptive_mode,
             current_stake: current.current_stake,
             current_predict: current.current_predict,
             loss_streak: current.loss_streak,
@@ -248,7 +253,7 @@ public class DashboardViewModel: ObservableObject {
                     _ = try await APIService.shared.stopBot()
                 } else {
                     let runtime = try await APIService.shared.getRuntime()
-                    guard runtime.engine_build == "recovery-state-v12-configurable-auto-restart-delay" else {
+                    guard runtime.engine_build == "recovery-state-v13-adaptive-performance-protection" else {
                         throw NSError(
                             domain: "BackendRuntime",
                             code: 409,
