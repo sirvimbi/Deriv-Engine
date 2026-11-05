@@ -357,6 +357,7 @@ class TradingBot:
         self.loss_streak = 0
         self.recovery_win_count = 0
         self.recovery_loss_stake = 0.0
+        self.recovery_max_stake_mode = False
         self.in_recovery_cycle = False
         self.recovery_phase = 0
         self.recovery_prediction_active = False

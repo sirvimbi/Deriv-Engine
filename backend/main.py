@@ -243,10 +243,6 @@ async def start_bot():
         # Transactions view before the bot places its first trade, so a new
         # run never mixes in transactions from a previous session.
         bot.session_start_epoch = int(time.time())
-        # The dashboard trade table is derived from these execution logs.
-        # Reset on session start, then retain every entry until the next run
-        # or an explicit user Clear action.
-        bot.clear_logs()
         await broadcast_ws_event("history_reset", {})
         await bot.start()
         return {"status": "started", "message": "Bot started successfully"}
