@@ -224,7 +224,8 @@ public struct DashboardView: View {
             if mode == "warming_up" {
                 let sample = status.rolling_sample_size ?? 0
                 let minimumSample = status.config.adaptive_minimum_sample_size
-                return "Warming up: \(sample)/\(minimumSample) • TP: $\(String(format: "%.2f", configuredTP))"
+                let slRateText = status.sl_rolling_win_rate.map { String(format: "%.1f%%", $0) } ?? "n/a"
+                return "TP warming: \(sample)/\(minimumSample) • TP: $\(String(format: "%.2f", configuredTP)) • SL: $\(String(format: "%.2f", activeSL)) • SL WR: \(slRateText)"
             }
             let rateText = status.rolling_win_rate.map { String(format: "%.1f%%", $0) } ?? "n/a"
             let slRateText = status.sl_rolling_win_rate.map { String(format: "%.1f%%", $0) } ?? "n/a"

@@ -432,11 +432,6 @@ class TradingBot:
         minutes = max(0, int(self.config.auto_restart_delay_minutes))
         return hours * 3600 + minutes * 60
 
-    @staticmethod
-    def _adaptive_minimum_sample_size() -> int:
-        """Require a meaningful sample before adaptive actions can stop trading."""
-        return 30
-
     def _select_adaptive_outcomes(self, window: int) -> List[bool]:
         """Select a rolling window, or all decisive outcomes when window is zero."""
         window = max(0, min(200, int(window)))

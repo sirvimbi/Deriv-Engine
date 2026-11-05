@@ -221,6 +221,9 @@ public struct SettingsView: View {
                             .font(.system(size: 12, weight: .bold, design: .monospaced))
                     }
                     Slider(value: $viewModel.config.adaptive_stop_win_rate, in: 0...30, step: 1)
+                    Text("The bot stops when the selected TP win rate reaches or falls below this value, after the minimum sample has been met.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
                     HStack {
                         Text("Minimum decisive trades before TP protection")
