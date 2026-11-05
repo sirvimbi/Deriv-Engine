@@ -96,7 +96,7 @@ class AdaptivePerformanceTests(unittest.TestCase):
         self.add_outcomes(bot, 120, 100)
         snapshot = bot._adaptive_performance_snapshot()
         self.assertEqual(snapshot["rolling_sample_size"], 200)
-        self.assertEqual(len(bot.recent_outcomes), 200)
+        self.assertEqual(len(bot.recent_outcomes), 220)
 
     def test_adaptive_sl_uses_independent_min_max_rates_and_window(self):
         bot = self.make_bot(
@@ -121,6 +121,14 @@ class AdaptivePerformanceTests(unittest.TestCase):
         self.add_outcomes(bot, 40, 10)
         snapshot = bot._adaptive_performance_snapshot()
         self.assertEqual(snapshot["active_stop_loss"], 100.0)
+
+    def test_switching_tp_window_to_zero_uses_older_session_outcomes(self):
+        bot = self.make_bot(adaptive_rolling_window=50, adaptive_stop_loss_rolling_window=50)
+        self.add_outcomes(bot, 60, 40)
+        bot.config.adaptive_rolling_window = 0
+        snapshot = bot._adaptive_performance_snapshot()
+        self.assertEqual(snapshot["rolling_sample_size"], 100)
+        self.assertEqual(snapshot["rolling_win_rate"], 60.0)
 
     def test_adaptive_sl_uses_all_session_trades_when_window_is_zero(self):
         bot = self.make_bot(

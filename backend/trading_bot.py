@@ -190,10 +190,6 @@ class TradingBot:
             # Never mix rolling outcomes from different contract strategies.
             self.recent_outcomes = []
             self._last_adaptive_log_signature = None
-        else:
-            retention_limit = self._adaptive_retention_limit()
-            if retention_limit > 0:
-                self.recent_outcomes = self.recent_outcomes[-retention_limit:]
         self.client.app_id = new_config.app_id
         self.client.account_type = new_config.account_type
 
@@ -441,14 +437,6 @@ class TradingBot:
         """Require a meaningful sample before adaptive actions can stop trading."""
         return 30
 
-    def _adaptive_retention_limit(self) -> int:
-        """Return 0 for session-wide history, otherwise retain the larger window."""
-        windows = [
-            max(0, min(200, int(self.config.adaptive_rolling_window))),
-            max(0, min(200, int(self.config.adaptive_stop_loss_rolling_window))),
-        ]
-        return 0 if any(window == 0 for window in windows) else max(windows)
-
     def _select_adaptive_outcomes(self, window: int) -> List[bool]:
         """Select a rolling window, or all decisive outcomes when window is zero."""
         window = max(0, min(200, int(window)))
@@ -464,9 +452,8 @@ class TradingBot:
             # Zero-P/L / break-even settlements do not improve or damage WR.
             return
 
-        retention_limit = self._adaptive_retention_limit()
-        if retention_limit > 0:
-            self.recent_outcomes = self.recent_outcomes[-retention_limit:]
+        # Preserve the full session history so changing either window to 0
+        # mid-session can still calculate against every decisive outcome.
 
     def _adaptive_performance_snapshot(self) -> Dict[str, Any]:
         """Return current adaptive TP/SL values and rolling performance state.
