@@ -82,7 +82,15 @@ public class SettingsViewModel: ObservableObject {
         config.take_profit = min(max(config.take_profit, 0), 500)
         config.stop_loss = min(max(config.stop_loss, 0), 1000)
         config.adaptive_target_win_rate = min(max(config.adaptive_target_win_rate, 50), 90)
-        config.adaptive_rolling_window = min(max(config.adaptive_rolling_window, 30), 200)
+        config.adaptive_stop_win_rate = min(max(config.adaptive_stop_win_rate, 0), 30)
+        config.adaptive_minimum_sample_size = min(max(config.adaptive_minimum_sample_size, 0), 30)
+        config.adaptive_rolling_window = min(max(config.adaptive_rolling_window, 0), 200)
+        config.adaptive_stop_loss_min_win_rate = min(max(config.adaptive_stop_loss_min_win_rate, 0), 99)
+        config.adaptive_stop_loss_max_win_rate = min(max(config.adaptive_stop_loss_max_win_rate, 1), 100)
+        if config.adaptive_stop_loss_min_win_rate >= config.adaptive_stop_loss_max_win_rate {
+            config.adaptive_stop_loss_max_win_rate = min(100, config.adaptive_stop_loss_min_win_rate + 1)
+        }
+        config.adaptive_stop_loss_rolling_window = min(max(config.adaptive_stop_loss_rolling_window, 0), 200)
         config.auto_restart_delay_hours = min(max(config.auto_restart_delay_hours, 0), 24)
         config.auto_restart_delay_minutes = min(max(config.auto_restart_delay_minutes, 0), 59)
     }

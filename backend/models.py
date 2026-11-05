@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List, Dict, Any
 
 
@@ -60,8 +60,13 @@ class TradingConfig(BaseModel):
     stop_loss: float = Field(default=500.0, ge=0, le=1000, description="Hard Stop Loss Limit (0-1000); 0 disables the limit.")
     adaptive_performance_enabled: bool = Field(default=False, description="Enable rolling win-rate adaptive protection for Digit-BOTH sessions.")
     adaptive_target_win_rate: float = Field(default=66.0, ge=50, le=90, description="Win-rate benchmark at which the full configured Take Profit is retained (50-90%).")
-    adaptive_rolling_window: int = Field(default=50, ge=30, le=200, description="Number of decisive settled outcomes in the rolling win-rate window (30-200).")
+    adaptive_stop_win_rate: float = Field(default=20.0, ge=0, le=30, description="Stop bot when the TP rolling win rate is at or below this percentage (0-30%).")
+    adaptive_minimum_sample_size: int = Field(default=30, ge=0, le=30, description="Minimum decisive settlements before TP adaptation and the emergency win-rate stop are applied (0-30).")
+    adaptive_rolling_window: int = Field(default=50, ge=0, le=200, description="TP win-rate window: 0 uses all decisive outcomes in the current session; 1-200 uses the most recent outcomes.")
     adaptive_stop_loss_enabled: bool = Field(default=False, description="Tighten the configured Stop Loss as rolling win rate deteriorates.")
+    adaptive_stop_loss_min_win_rate: float = Field(default=20.0, ge=0, le=99, description="At or below this rolling win rate, adaptive SL is at its tightest setting (0-99%).")
+    adaptive_stop_loss_max_win_rate: float = Field(default=66.0, ge=1, le=100, description="At or above this rolling win rate, adaptive SL returns to the configured Hard Stop Loss (1-100%).")
+    adaptive_stop_loss_rolling_window: int = Field(default=50, ge=0, le=200, description="Adaptive SL win-rate window: 0 uses all decisive session outcomes; 1-200 uses the most recent outcomes.")
     auto_restart_after_stop: bool = Field(default=False, description="Automatically restart after a Take Profit or Hard Stop Loss.")
     auto_restart_after_take_profit: bool = Field(default=False, description="Legacy alias for auto_restart_after_stop.")
     auto_restart_delay_hours: int = Field(default=0, ge=0, le=24, description="Auto-restart delay hours (0-24).")
@@ -99,6 +104,12 @@ class TradingConfig(BaseModel):
         description="Persistent random seed used only to randomize Digit BOTH orientation independently of bot runtime."
     )
 
+    @model_validator(mode="after")
+    def validate_adaptive_stop_loss_rates(self):
+        if self.adaptive_stop_loss_min_win_rate >= self.adaptive_stop_loss_max_win_rate:
+            raise ValueError("Adaptive Stop Loss minimum win rate must be lower than its maximum win rate.")
+        return self
+
 class AccountSwitchRequest(BaseModel):
     account_type: str = Field(description="Target Deriv Options account type: demo or real")
     confirm_real_account: bool = Field(default=False, description="Explicit confirmation required before switching to real-money trading.")
@@ -116,6 +127,8 @@ class BotStatus(BaseModel):
     active_take_profit: Optional[float] = None
     active_stop_loss: Optional[float] = None
     adaptive_mode: Optional[str] = None
+    sl_rolling_win_rate: Optional[float] = None
+    sl_rolling_sample_size: Optional[int] = None
     current_stake: float
     current_predict: int
     loss_streak: int
