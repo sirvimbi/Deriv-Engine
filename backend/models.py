@@ -58,6 +58,10 @@ class TradingConfig(BaseModel):
     martingale: float = Field(default=2.0, ge=0, le=50, description="Martingale Multiplier on Loss (0-50).")
     take_profit: float = Field(default=500.0, ge=0, le=500, description="Take Profit Target (0-500); 0 disables the target.")
     stop_loss: float = Field(default=500.0, ge=0, le=1000, description="Hard Stop Loss Limit (0-1000); 0 disables the limit.")
+    adaptive_performance_enabled: bool = Field(default=False, description="Enable rolling win-rate adaptive protection for Digit-BOTH sessions.")
+    adaptive_target_win_rate: float = Field(default=66.0, ge=50, le=90, description="Win-rate benchmark at which the full configured Take Profit is retained (50-90%).")
+    adaptive_rolling_window: int = Field(default=50, ge=30, le=200, description="Number of decisive settled outcomes in the rolling win-rate window (30-200).")
+    adaptive_stop_loss_enabled: bool = Field(default=False, description="Tighten the configured Stop Loss as rolling win rate deteriorates.")
     auto_restart_after_stop: bool = Field(default=False, description="Automatically restart after a Take Profit or Hard Stop Loss.")
     auto_restart_after_take_profit: bool = Field(default=False, description="Legacy alias for auto_restart_after_stop.")
     auto_restart_delay_hours: int = Field(default=0, ge=0, le=24, description="Auto-restart delay hours (0-24).")
@@ -107,6 +111,11 @@ class BotStatus(BaseModel):
     total_wins: int
     total_losses: int
     win_rate: float
+    rolling_win_rate: Optional[float] = None
+    rolling_sample_size: Optional[int] = None
+    active_take_profit: Optional[float] = None
+    active_stop_loss: Optional[float] = None
+    adaptive_mode: Optional[str] = None
     current_stake: float
     current_predict: int
     loss_streak: int

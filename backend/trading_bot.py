@@ -46,6 +46,10 @@ class TradingBot:
         self.runs = 0
         self.total_wins = 0
         self.total_losses = 0
+        # Session-scoped outcomes used by adaptive Digit-BOTH protection.
+        # True=win, False=loss; break-even contracts are deliberately omitted.
+        self.recent_outcomes: List[bool] = []
+        self._last_adaptive_log_signature = None
         self.lowest_balance = 0.0
         self.lowest_loss = 0.0
         self.account_equity: Optional[float] = None
@@ -180,7 +184,14 @@ class TradingBot:
         new_config.auto_restart_after_take_profit = auto_restart
 
         was_cooling_down = self.is_running and self.recovery_cooldown_until > time.monotonic()
+        previous_mode = self.config.contract_type_mode.upper()
         self.config = new_config
+        if previous_mode != new_config.contract_type_mode.upper():
+            # Never mix rolling outcomes from different contract strategies.
+            self.recent_outcomes = []
+            self._last_adaptive_log_signature = None
+        else:
+            self.recent_outcomes = self.recent_outcomes[-max(30, int(new_config.adaptive_rolling_window)):]
         self.client.app_id = new_config.app_id
         self.client.account_type = new_config.account_type
 
@@ -371,6 +382,8 @@ class TradingBot:
         self.runs = 0
         self.total_wins = 0
         self.total_losses = 0
+        self.recent_outcomes = []
+        self._last_adaptive_log_signature = None
         self.lowest_balance = 0.0
         self.lowest_loss = 0.0
         self.wins_in_row = 0
@@ -420,6 +433,105 @@ class TradingBot:
         hours = max(0, int(self.config.auto_restart_delay_hours))
         minutes = max(0, int(self.config.auto_restart_delay_minutes))
         return hours * 3600 + minutes * 60
+
+    @staticmethod
+    def _adaptive_minimum_sample_size() -> int:
+        """Require a meaningful sample before adaptive actions can stop trading."""
+        return 30
+
+    def _record_adaptive_outcome(self, profit: float):
+        """Add only decisive settled outcomes to the rolling win-rate window."""
+        if profit > 0.005:
+            self.recent_outcomes.append(True)
+        elif profit < -0.005:
+            self.recent_outcomes.append(False)
+        else:
+            # Zero-P/L / break-even settlements do not improve or damage WR.
+            return
+
+        window = max(30, min(200, int(self.config.adaptive_rolling_window)))
+        self.recent_outcomes = self.recent_outcomes[-window:]
+
+    def _adaptive_performance_snapshot(self) -> Dict[str, Any]:
+        """Return current adaptive TP/SL values and rolling performance state.
+
+        Adaptive controls are deliberately limited to Digit-BOTH. Other
+        contract modes retain their configured fixed TP/SL behaviour.
+        """
+        sample_size = len(self.recent_outcomes)
+        rolling_win_rate = (
+            (sum(1 for outcome in self.recent_outcomes if outcome) / sample_size) * 100.0
+            if sample_size else None
+        )
+        active_take_profit = float(self.config.take_profit)
+        active_stop_loss = float(self.config.stop_loss)
+        mode = "disabled"
+
+        if self.config.adaptive_performance_enabled:
+            if self.config.contract_type_mode.upper() != "BOTH":
+                mode = "not_applicable"
+            elif sample_size < self._adaptive_minimum_sample_size() or rolling_win_rate is None:
+                mode = "warming_up"
+            else:
+                target_rate = float(self.config.adaptive_target_win_rate)
+                stop_rate = 20.0
+                if rolling_win_rate <= stop_rate:
+                    mode = "stop"
+                    factor = 0.0
+                else:
+                    factor = max(
+                        0.0,
+                        min(1.0, (rolling_win_rate - stop_rate) / (target_rate - stop_rate))
+                    )
+                    if rolling_win_rate >= target_rate:
+                        mode = "normal"
+                    elif rolling_win_rate >= 50.0:
+                        mode = "caution"
+                    else:
+                        mode = "protection"
+
+                if active_take_profit > 0:
+                    active_take_profit = round(float(self.config.take_profit) * factor, 2)
+
+                if self.config.adaptive_stop_loss_enabled and active_stop_loss > 0:
+                    # Tighten gradually to at most 50% of the configured hard
+                    # limit; never increase the user's configured maximum loss.
+                    stop_factor = 0.5 + (0.5 * factor)
+                    active_stop_loss = round(float(self.config.stop_loss) * stop_factor, 2)
+
+        return {
+            "rolling_win_rate": round(rolling_win_rate, 2) if rolling_win_rate is not None else None,
+            "rolling_sample_size": sample_size,
+            "active_take_profit": round(active_take_profit, 2),
+            "active_stop_loss": round(active_stop_loss, 2),
+            "mode": mode,
+        }
+
+    def _log_adaptive_performance_state(self, snapshot: Dict[str, Any]):
+        """Log material state/target changes without producing a log per tick."""
+        if not self.config.adaptive_performance_enabled:
+            self._last_adaptive_log_signature = None
+            return
+        if snapshot["mode"] not in ("normal", "caution", "protection", "stop"):
+            return
+
+        rate = snapshot["rolling_win_rate"]
+        signature = (
+            snapshot["mode"],
+            round(snapshot["active_take_profit"]),
+            round(snapshot["active_stop_loss"]) if self.config.adaptive_stop_loss_enabled else None,
+        )
+        if signature == self._last_adaptive_log_signature:
+            return
+        self._last_adaptive_log_signature = signature
+        self.add_log(
+            "warn" if snapshot["mode"] in ("protection", "stop") else "info",
+            f"ADAPTIVE PERFORMANCE | mode={snapshot['mode'].upper()} | "
+            f"rolling_win_rate={rate:.2f}% | sample={snapshot['rolling_sample_size']} | "
+            f"active_TP=${snapshot['active_take_profit']:.2f} "
+            f"(configured=${self.config.take_profit:.2f}) | "
+            f"active_SL=${snapshot['active_stop_loss']:.2f}.",
+        )
 
     async def stop(self, reason: str = "Stopped by user"):
         if not self.is_running:
@@ -1294,6 +1406,7 @@ class TradingBot:
 
         self.total_profit += profit
         self.runs += 1
+        self._record_adaptive_outcome(profit)
 
         # Every settled recovery execution consumes one Martingale execution slot.
         # Losses re-arm the configured target in the loss branch below.
@@ -1552,11 +1665,32 @@ class TradingBot:
         # and removing the delay prevents a loss from leaving the bot appearing
         # idle when the market is still streaming.
 
-        # Check stopping criteria
-        if self.config.take_profit > 0 and self.total_profit >= self.config.take_profit:
-            await self.stop(f"Take Profit limit reached (+${self.total_profit:.2f} >= ${self.config.take_profit:.2f})")
-        elif self.config.stop_loss > 0 and self.total_profit <= -self.config.stop_loss:
-            await self.stop(f"Stop Loss limit reached (${self.total_profit:.2f} <= -${self.config.stop_loss:.2f})")
+        # Evaluate adaptive protection only after a contract has settled and
+        # its outcome has entered the rolling window. The emergency WR stop
+        # takes priority and intentionally does not trigger TP/SL auto-restart.
+        adaptive = self._adaptive_performance_snapshot()
+        self._log_adaptive_performance_state(adaptive)
+
+        if adaptive["mode"] == "stop":
+            await self.stop(
+                f"Adaptive win-rate protection triggered | rolling win rate "
+                f"{adaptive['rolling_win_rate']:.2f}% is at or below 20% "
+                f"after {adaptive['rolling_sample_size']} decisive settled trades. "
+                "Manual restart required."
+            )
+        elif adaptive["active_take_profit"] > 0 and self.total_profit >= adaptive["active_take_profit"]:
+            await self.stop(
+                f"Take Profit limit reached (+${self.total_profit:.2f} >= "
+                f"${adaptive['active_take_profit']:.2f}; configured "
+                f"${self.config.take_profit:.2f})"
+            )
+        elif adaptive["active_stop_loss"] > 0 and self.total_profit <= -adaptive["active_stop_loss"]:
+            stop_label = " (adaptive)" if adaptive["active_stop_loss"] < self.config.stop_loss else ""
+            await self.stop(
+                f"Stop Loss limit reached{stop_label} (${self.total_profit:.2f} <= "
+                f"-${adaptive['active_stop_loss']:.2f}; configured "
+                f"${self.config.stop_loss:.2f})"
+            )
         elif self.runs >= self.config.max_runs:
             await self.stop(f"Max runs limit reached ({self.runs} >= {self.config.max_runs})")
 
@@ -1592,6 +1726,7 @@ class TradingBot:
     def get_status(self) -> BotStatus:
         win_rate = (self.total_wins / self.runs * 100.0) if self.runs > 0 else 0.0
         duration_mins = (time.time() - self.start_time_epoch) / 60.0 if self.is_running else 0.0
+        adaptive = self._adaptive_performance_snapshot()
 
         return BotStatus(
             is_running=self.is_running,
@@ -1601,6 +1736,11 @@ class TradingBot:
             total_wins=self.total_wins,
             total_losses=self.total_losses,
             win_rate=round(win_rate, 2),
+            rolling_win_rate=adaptive["rolling_win_rate"],
+            rolling_sample_size=adaptive["rolling_sample_size"],
+            active_take_profit=adaptive["active_take_profit"],
+            active_stop_loss=adaptive["active_stop_loss"],
+            adaptive_mode=adaptive["mode"],
             current_stake=round(self.stake, 2),
             current_predict=self.predict,
             loss_streak=self.loss_streak,

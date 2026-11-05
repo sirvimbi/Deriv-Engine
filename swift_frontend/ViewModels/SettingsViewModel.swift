@@ -81,6 +81,8 @@ public class SettingsViewModel: ObservableObject {
         config.martingale = min(max(config.martingale, 0), 50)
         config.take_profit = min(max(config.take_profit, 0), 500)
         config.stop_loss = min(max(config.stop_loss, 0), 1000)
+        config.adaptive_target_win_rate = min(max(config.adaptive_target_win_rate, 50), 90)
+        config.adaptive_rolling_window = min(max(config.adaptive_rolling_window, 30), 200)
         config.auto_restart_delay_hours = min(max(config.auto_restart_delay_hours, 0), 24)
         config.auto_restart_delay_minutes = min(max(config.auto_restart_delay_minutes, 0), 59)
     }

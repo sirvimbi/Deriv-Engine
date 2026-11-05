@@ -198,13 +198,44 @@ public struct DashboardView: View {
     // MARK: Metrics
 
     private var metricsGrid: some View {
-        LazyVGrid(columns: gridColumns, spacing: 12) {
+        let status = viewModel.botStatus
+        let configuredTP = status.config.take_profit
+        let activeTP = status.active_take_profit ?? configuredTP
+        let adaptiveEnabled = status.config.adaptive_performance_enabled
+        let mode = status.adaptive_mode ?? "disabled"
+        let adaptiveColor: Color = {
+            switch mode {
+            case "normal": return Theme.profit
+            case "caution": return Theme.warning
+            case "protection", "stop": return Theme.loss
+            case "warming_up": return Theme.info
+            default: return status.total_profit >= 0 ? Theme.profit : Theme.loss
+            }
+        }()
+        let targetSubtitle: String = {
+            guard adaptiveEnabled else {
+                return "Target: $\(String(format: "%.2f", configuredTP))"
+            }
+            if mode == "not_applicable" {
+                return "Target: $\(String(format: "%.2f", configuredTP)) • BOTH only"
+            }
+            if mode == "warming_up" {
+                let sample = status.rolling_sample_size ?? 0
+                return "Warming up: \(sample)/30 • TP: $\(String(format: "%.2f", configuredTP))"
+            }
+            let rateText = status.rolling_win_rate.map { String(format: "%.1f%%", $0) } ?? "n/a"
+            let modeText = mode.replacingOccurrences(of: "_", with: " ").capitalized
+            return "TP: $\(String(format: "%.2f", activeTP)) / $\(String(format: "%.2f", configuredTP)) • WR: \(rateText) • \(modeText)"
+        }()
+        return LazyVGrid(columns: gridColumns, spacing: 12) {
             MetricCard(
                 title: "TOTAL PROFIT",
-                value: String(format: "$%.2f", viewModel.botStatus.total_profit),
-                subtitle: "Target: $\(String(format: "%.0f", viewModel.botStatus.config.take_profit))",
+                value: String(format: "$%.2f", status.total_profit),
+                subtitle: targetSubtitle,
                 iconName: "dollarsign.circle.fill",
-                color: viewModel.botStatus.total_profit >= 0 ? Theme.profit : Theme.loss
+                color: adaptiveEnabled && mode != "not_applicable" && mode != "disabled"
+                    ? adaptiveColor
+                    : (status.total_profit >= 0 ? Theme.profit : Theme.loss)
             )
 
             MetricCard(

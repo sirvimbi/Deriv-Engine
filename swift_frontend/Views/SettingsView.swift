@@ -197,6 +197,34 @@ public struct SettingsView: View {
             dropdownRow("Hard Stop Loss ($)") {
                 DecimalAmountDropdown("Hard Stop Loss", value: $viewModel.config.stop_loss, range: 0...1000)
             }
+
+            Toggle("Enable Adaptive TP/SL (Digit-BOTH only)", isOn: $viewModel.config.adaptive_performance_enabled)
+                .toggleStyle(.switch)
+            if viewModel.config.adaptive_performance_enabled {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Full Take Profit win-rate benchmark")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(String(format: "%.0f%%", viewModel.config.adaptive_target_win_rate))
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    }
+                    Slider(value: $viewModel.config.adaptive_target_win_rate, in: 50...90, step: 1)
+                    dropdownRow("Rolling Win-Rate Window") {
+                        IntegerDropdown("Rolling Win-Rate Window", value: $viewModel.config.adaptive_rolling_window, range: 30...200)
+                    }
+                    Toggle("Tighten Stop Loss as win rate falls", isOn: $viewModel.config.adaptive_stop_loss_enabled)
+                        .toggleStyle(.switch)
+                    Text("Uses the last configured number of settled wins/losses (default 50). Break-even contracts are excluded. Protection starts after 30 decisive settlements. At or below 20% rolling win rate, the bot stops and requires a manual restart.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("Below the benchmark, the active Take Profit scales down proportionally. Optional adaptive Stop Loss tightens gradually but never exceeds your configured Hard Stop Loss. This feature only changes Digit-BOTH sessions; other modes retain fixed targets.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Toggle("Auto-start after Take Profit / Stop Loss", isOn: $viewModel.config.auto_restart_after_stop)
                 .toggleStyle(.switch)
             dropdownRow("Auto-start Delay") {
