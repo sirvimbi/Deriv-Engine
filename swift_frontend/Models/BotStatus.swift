@@ -19,6 +19,8 @@ public struct BotStatus: Codable {
     public let active_take_profit: Double?
     public let active_stop_loss: Double?
     public let adaptive_mode: String?
+    public let sl_rolling_win_rate: Double?
+    public let sl_rolling_sample_size: Int?
     public let current_stake: Double
     public let current_predict: Int
     public let loss_streak: Int
@@ -52,6 +54,8 @@ public struct BotStatus: Codable {
             active_take_profit: nil,
             active_stop_loss: nil,
             adaptive_mode: nil,
+            sl_rolling_win_rate: nil,
+            sl_rolling_sample_size: nil,
             current_stake: 30.0,
             current_predict: 8,
             loss_streak: 0,

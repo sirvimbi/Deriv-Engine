@@ -201,6 +201,8 @@ public struct DashboardView: View {
         let status = viewModel.botStatus
         let configuredTP = status.config.take_profit
         let activeTP = status.active_take_profit ?? configuredTP
+        let configuredSL = status.config.stop_loss
+        let activeSL = status.active_stop_loss ?? configuredSL
         let adaptiveEnabled = status.config.adaptive_performance_enabled
         let mode = status.adaptive_mode ?? "disabled"
         let adaptiveColor: Color = {
@@ -221,11 +223,14 @@ public struct DashboardView: View {
             }
             if mode == "warming_up" {
                 let sample = status.rolling_sample_size ?? 0
-                return "Warming up: \(sample)/30 • TP: $\(String(format: "%.2f", configuredTP))"
+                let minimumSample = status.config.adaptive_minimum_sample_size
+                let slRateText = status.sl_rolling_win_rate.map { String(format: "%.1f%%", $0) } ?? "n/a"
+                return "TP warming: \(sample)/\(minimumSample) • TP: $\(String(format: "%.2f", configuredTP)) • SL: $\(String(format: "%.2f", activeSL)) • SL WR: \(slRateText)"
             }
             let rateText = status.rolling_win_rate.map { String(format: "%.1f%%", $0) } ?? "n/a"
+            let slRateText = status.sl_rolling_win_rate.map { String(format: "%.1f%%", $0) } ?? "n/a"
             let modeText = mode.replacingOccurrences(of: "_", with: " ").capitalized
-            return "TP: $\(String(format: "%.2f", activeTP)) / $\(String(format: "%.2f", configuredTP)) • WR: \(rateText) • \(modeText)"
+            return "TP: $\(String(format: "%.2f", activeTP)) / $\(String(format: "%.2f", configuredTP)) • SL: $\(String(format: "%.2f", activeSL)) / $\(String(format: "%.2f", configuredSL)) • WR: \(rateText) • SL WR: \(slRateText) • \(modeText)"
         }()
         return LazyVGrid(columns: gridColumns, spacing: 12) {
             MetricCard(

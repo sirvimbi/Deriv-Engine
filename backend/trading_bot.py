@@ -190,8 +190,6 @@ class TradingBot:
             # Never mix rolling outcomes from different contract strategies.
             self.recent_outcomes = []
             self._last_adaptive_log_signature = None
-        else:
-            self.recent_outcomes = self.recent_outcomes[-max(30, int(new_config.adaptive_rolling_window)):]
         self.client.app_id = new_config.app_id
         self.client.account_type = new_config.account_type
 
@@ -434,13 +432,13 @@ class TradingBot:
         minutes = max(0, int(self.config.auto_restart_delay_minutes))
         return hours * 3600 + minutes * 60
 
-    @staticmethod
-    def _adaptive_minimum_sample_size() -> int:
-        """Require a meaningful sample before adaptive actions can stop trading."""
-        return 30
+    def _select_adaptive_outcomes(self, window: int) -> List[bool]:
+        """Select a rolling window, or all decisive outcomes when window is zero."""
+        window = max(0, min(200, int(window)))
+        return self.recent_outcomes if window == 0 else self.recent_outcomes[-window:]
 
     def _record_adaptive_outcome(self, profit: float):
-        """Add only decisive settled outcomes to the rolling win-rate window."""
+        """Add only decisive settled outcomes to the session outcome history."""
         if profit > 0.005:
             self.recent_outcomes.append(True)
         elif profit < -0.005:
@@ -449,8 +447,8 @@ class TradingBot:
             # Zero-P/L / break-even settlements do not improve or damage WR.
             return
 
-        window = max(30, min(200, int(self.config.adaptive_rolling_window)))
-        self.recent_outcomes = self.recent_outcomes[-window:]
+        # Preserve the full session history so changing either window to 0
+        # mid-session can still calculate against every decisive outcome.
 
     def _adaptive_performance_snapshot(self) -> Dict[str, Any]:
         """Return current adaptive TP/SL values and rolling performance state.
@@ -458,10 +456,17 @@ class TradingBot:
         Adaptive controls are deliberately limited to Digit-BOTH. Other
         contract modes retain their configured fixed TP/SL behaviour.
         """
-        sample_size = len(self.recent_outcomes)
+        tp_outcomes = self._select_adaptive_outcomes(self.config.adaptive_rolling_window)
+        tp_sample_size = len(tp_outcomes)
         rolling_win_rate = (
-            (sum(1 for outcome in self.recent_outcomes if outcome) / sample_size) * 100.0
-            if sample_size else None
+            (sum(1 for outcome in tp_outcomes if outcome) / tp_sample_size) * 100.0
+            if tp_sample_size else None
+        )
+        sl_outcomes = self._select_adaptive_outcomes(self.config.adaptive_stop_loss_rolling_window)
+        sl_sample_size = len(sl_outcomes)
+        sl_rolling_win_rate = (
+            (sum(1 for outcome in sl_outcomes if outcome) / sl_sample_size) * 100.0
+            if sl_sample_size else None
         )
         active_take_profit = float(self.config.take_profit)
         active_stop_loss = float(self.config.stop_loss)
@@ -470,11 +475,14 @@ class TradingBot:
         if self.config.adaptive_performance_enabled:
             if self.config.contract_type_mode.upper() != "BOTH":
                 mode = "not_applicable"
-            elif sample_size < self._adaptive_minimum_sample_size() or rolling_win_rate is None:
+            elif (
+                rolling_win_rate is None
+                or tp_sample_size < int(self.config.adaptive_minimum_sample_size)
+            ):
                 mode = "warming_up"
             else:
                 target_rate = float(self.config.adaptive_target_win_rate)
-                stop_rate = 20.0
+                stop_rate = float(self.config.adaptive_stop_win_rate)
                 if rolling_win_rate <= stop_rate:
                     mode = "stop"
                     factor = 0.0
@@ -493,18 +501,34 @@ class TradingBot:
                 if active_take_profit > 0:
                     active_take_profit = round(float(self.config.take_profit) * factor, 2)
 
-                if self.config.adaptive_stop_loss_enabled and active_stop_loss > 0:
-                    # Tighten gradually to at most 50% of the configured hard
-                    # limit; never increase the user's configured maximum loss.
-                    stop_factor = 0.5 + (0.5 * factor)
-                    active_stop_loss = round(float(self.config.stop_loss) * stop_factor, 2)
+            if (
+                self.config.contract_type_mode.upper() == "BOTH"
+                and self.config.adaptive_stop_loss_enabled
+                and active_stop_loss > 0
+                and sl_rolling_win_rate is not None
+            ):
+                min_rate = float(self.config.adaptive_stop_loss_min_win_rate)
+                max_rate = float(self.config.adaptive_stop_loss_max_win_rate)
+                if sl_rolling_win_rate <= min_rate:
+                    sl_progress = 0.0
+                elif sl_rolling_win_rate >= max_rate:
+                    sl_progress = 1.0
+                else:
+                    sl_progress = (sl_rolling_win_rate - min_rate) / (max_rate - min_rate)
+
+                # Adaptive SL ranges from 50% of configured Hard Stop Loss
+                # at/below min WR to 100% at/above max WR. It never loosens.
+                stop_factor = 0.5 + (0.5 * sl_progress)
+                active_stop_loss = round(float(self.config.stop_loss) * stop_factor, 2)
 
         return {
             "rolling_win_rate": round(rolling_win_rate, 2) if rolling_win_rate is not None else None,
-            "rolling_sample_size": sample_size,
+            "rolling_sample_size": tp_sample_size,
             "active_take_profit": round(active_take_profit, 2),
             "active_stop_loss": round(active_stop_loss, 2),
             "mode": mode,
+            "sl_rolling_win_rate": round(sl_rolling_win_rate, 2) if sl_rolling_win_rate is not None else None,
+            "sl_rolling_sample_size": sl_sample_size,
         }
 
     def _log_adaptive_performance_state(self, snapshot: Dict[str, Any]):
@@ -1674,7 +1698,8 @@ class TradingBot:
         if adaptive["mode"] == "stop":
             await self.stop(
                 f"Adaptive win-rate protection triggered | rolling win rate "
-                f"{adaptive['rolling_win_rate']:.2f}% is at or below 20% "
+                f"{adaptive['rolling_win_rate']:.2f}% is at or below "
+                f"{self.config.adaptive_stop_win_rate:.2f}% "
                 f"after {adaptive['rolling_sample_size']} decisive settled trades. "
                 "Manual restart required."
             )
@@ -1741,6 +1766,8 @@ class TradingBot:
             active_take_profit=adaptive["active_take_profit"],
             active_stop_loss=adaptive["active_stop_loss"],
             adaptive_mode=adaptive["mode"],
+            sl_rolling_win_rate=adaptive["sl_rolling_win_rate"],
+            sl_rolling_sample_size=adaptive["sl_rolling_sample_size"],
             current_stake=round(self.stake, 2),
             current_predict=self.predict,
             loss_streak=self.loss_streak,

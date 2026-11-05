@@ -12,8 +12,13 @@ public struct TradingConfig: Codable, Equatable {
     public var stop_loss: Double
     public var adaptive_performance_enabled: Bool
     public var adaptive_target_win_rate: Double
+    public var adaptive_stop_win_rate: Double
+    public var adaptive_minimum_sample_size: Int
     public var adaptive_rolling_window: Int
     public var adaptive_stop_loss_enabled: Bool
+    public var adaptive_stop_loss_min_win_rate: Double
+    public var adaptive_stop_loss_max_win_rate: Double
+    public var adaptive_stop_loss_rolling_window: Int
     public var auto_restart_after_stop: Bool
     public var auto_restart_after_take_profit: Bool
     public var auto_restart_delay_hours: Int
@@ -56,8 +61,13 @@ public struct TradingConfig: Codable, Equatable {
         stop_loss: Double = 500.0,
         adaptive_performance_enabled: Bool = false,
         adaptive_target_win_rate: Double = 66.0,
+        adaptive_stop_win_rate: Double = 20.0,
+        adaptive_minimum_sample_size: Int = 30,
         adaptive_rolling_window: Int = 50,
         adaptive_stop_loss_enabled: Bool = false,
+        adaptive_stop_loss_min_win_rate: Double = 20.0,
+        adaptive_stop_loss_max_win_rate: Double = 66.0,
+        adaptive_stop_loss_rolling_window: Int = 50,
         auto_restart_after_stop: Bool = false,
         auto_restart_after_take_profit: Bool = false,
         auto_restart_delay_hours: Int = 0,
@@ -97,8 +107,13 @@ public struct TradingConfig: Codable, Equatable {
         self.stop_loss = stop_loss
         self.adaptive_performance_enabled = adaptive_performance_enabled
         self.adaptive_target_win_rate = adaptive_target_win_rate
+        self.adaptive_stop_win_rate = adaptive_stop_win_rate
+        self.adaptive_minimum_sample_size = adaptive_minimum_sample_size
         self.adaptive_rolling_window = adaptive_rolling_window
         self.adaptive_stop_loss_enabled = adaptive_stop_loss_enabled
+        self.adaptive_stop_loss_min_win_rate = adaptive_stop_loss_min_win_rate
+        self.adaptive_stop_loss_max_win_rate = adaptive_stop_loss_max_win_rate
+        self.adaptive_stop_loss_rolling_window = adaptive_stop_loss_rolling_window
         self.auto_restart_after_stop = auto_restart_after_stop
         self.auto_restart_after_take_profit = auto_restart_after_take_profit
         self.auto_restart_delay_hours = auto_restart_delay_hours
@@ -131,7 +146,8 @@ public struct TradingConfig: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case api_token, app_id, symbol, base_stake, max_stake
         case martingale_enabled, martingale, take_profit, stop_loss
-        case adaptive_performance_enabled, adaptive_target_win_rate, adaptive_rolling_window, adaptive_stop_loss_enabled
+        case adaptive_performance_enabled, adaptive_target_win_rate, adaptive_stop_win_rate, adaptive_minimum_sample_size, adaptive_rolling_window
+        case adaptive_stop_loss_enabled, adaptive_stop_loss_min_win_rate, adaptive_stop_loss_max_win_rate, adaptive_stop_loss_rolling_window
         case auto_restart_after_stop, auto_restart_after_take_profit
         case auto_restart_delay_hours, auto_restart_delay_minutes
         case max_runs, max_loss_streak, loss_cooldown_hours, loss_cooldown_minutes, loss_cooldown_seconds
@@ -159,8 +175,13 @@ public struct TradingConfig: Codable, Equatable {
         try c.encode(stop_loss, forKey: .stop_loss)
         try c.encode(adaptive_performance_enabled, forKey: .adaptive_performance_enabled)
         try c.encode(adaptive_target_win_rate, forKey: .adaptive_target_win_rate)
+        try c.encode(adaptive_stop_win_rate, forKey: .adaptive_stop_win_rate)
+        try c.encode(adaptive_minimum_sample_size, forKey: .adaptive_minimum_sample_size)
         try c.encode(adaptive_rolling_window, forKey: .adaptive_rolling_window)
         try c.encode(adaptive_stop_loss_enabled, forKey: .adaptive_stop_loss_enabled)
+        try c.encode(adaptive_stop_loss_min_win_rate, forKey: .adaptive_stop_loss_min_win_rate)
+        try c.encode(adaptive_stop_loss_max_win_rate, forKey: .adaptive_stop_loss_max_win_rate)
+        try c.encode(adaptive_stop_loss_rolling_window, forKey: .adaptive_stop_loss_rolling_window)
 
         // One source of truth: auto_restart_after_stop.
         try c.encode(auto_restart_after_stop, forKey: .auto_restart_after_stop)
@@ -212,8 +233,16 @@ public struct TradingConfig: Codable, Equatable {
         stop_loss = min(max(try c.decodeIfPresent(Double.self, forKey: .stop_loss) ?? 500.0, 0), 1000)
         adaptive_performance_enabled = try c.decodeIfPresent(Bool.self, forKey: .adaptive_performance_enabled) ?? false
         adaptive_target_win_rate = min(max(try c.decodeIfPresent(Double.self, forKey: .adaptive_target_win_rate) ?? 66.0, 50), 90)
-        adaptive_rolling_window = min(max(try c.decodeIfPresent(Int.self, forKey: .adaptive_rolling_window) ?? 50, 30), 200)
+        adaptive_stop_win_rate = min(max(try c.decodeIfPresent(Double.self, forKey: .adaptive_stop_win_rate) ?? 20.0, 0), 30)
+        adaptive_minimum_sample_size = min(max(try c.decodeIfPresent(Int.self, forKey: .adaptive_minimum_sample_size) ?? 30, 0), 30)
+        adaptive_rolling_window = min(max(try c.decodeIfPresent(Int.self, forKey: .adaptive_rolling_window) ?? 50, 0), 200)
         adaptive_stop_loss_enabled = try c.decodeIfPresent(Bool.self, forKey: .adaptive_stop_loss_enabled) ?? false
+        adaptive_stop_loss_min_win_rate = min(max(try c.decodeIfPresent(Double.self, forKey: .adaptive_stop_loss_min_win_rate) ?? 20.0, 0), 99)
+        adaptive_stop_loss_max_win_rate = min(max(try c.decodeIfPresent(Double.self, forKey: .adaptive_stop_loss_max_win_rate) ?? 66.0, 1), 100)
+        adaptive_stop_loss_rolling_window = min(max(try c.decodeIfPresent(Int.self, forKey: .adaptive_stop_loss_rolling_window) ?? 50, 0), 200)
+        if adaptive_stop_loss_min_win_rate >= adaptive_stop_loss_max_win_rate {
+            adaptive_stop_loss_min_win_rate = max(0, adaptive_stop_loss_max_win_rate - 1)
+        }
         let autoStop = try c.decodeIfPresent(Bool.self, forKey: .auto_restart_after_stop)
         let autoTP = try c.decodeIfPresent(Bool.self, forKey: .auto_restart_after_take_profit)
         let resolvedAutoRestart = (autoStop == true) || (autoTP == true)

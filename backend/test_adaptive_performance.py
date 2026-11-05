@@ -31,28 +31,25 @@ class AdaptivePerformanceTests(unittest.TestCase):
         self.assertEqual(snapshot["active_stop_loss"], 100.0)
 
     def test_other_contract_modes_keep_fixed_targets(self):
-        bot = self.make_bot(contract_type_mode="DIGITOVER")
+        bot = self.make_bot(contract_type_mode="DIGITOVER", adaptive_stop_loss_enabled=True)
         self.add_outcomes(bot, 15, 15)
         snapshot = bot._adaptive_performance_snapshot()
         self.assertEqual(snapshot["mode"], "not_applicable")
         self.assertEqual(snapshot["active_take_profit"], 100.0)
         self.assertEqual(snapshot["active_stop_loss"], 100.0)
 
-    def test_waits_for_thirty_decisive_settlements(self):
-        bot = self.make_bot()
-        self.add_outcomes(bot, 8, 21)
+    def test_configurable_minimum_sample_and_stop_threshold(self):
+        bot = self.make_bot(adaptive_minimum_sample_size=2, adaptive_stop_win_rate=30.0)
+        self.add_outcomes(bot, 0, 2)
+        snapshot = bot._adaptive_performance_snapshot()
+        self.assertEqual(snapshot["mode"], "stop")
+        self.assertEqual(snapshot["rolling_win_rate"], 0.0)
+
+    def test_zero_minimum_sample_still_requires_one_decisive_outcome(self):
+        bot = self.make_bot(adaptive_minimum_sample_size=0)
         self.assertEqual(bot._adaptive_performance_snapshot()["mode"], "warming_up")
         self.add_outcomes(bot, 1, 0)
-        snapshot = bot._adaptive_performance_snapshot()
-        self.assertEqual(snapshot["rolling_sample_size"], 30)
-        self.assertEqual(snapshot["mode"], "protection")
-
-    def test_twenty_percent_does_not_stop_before_minimum_sample(self):
-        bot = self.make_bot()
-        self.add_outcomes(bot, 6, 23)
-        snapshot = bot._adaptive_performance_snapshot()
-        self.assertEqual(snapshot["rolling_sample_size"], 29)
-        self.assertEqual(snapshot["mode"], "warming_up")
+        self.assertEqual(bot._adaptive_performance_snapshot()["mode"], "normal")
 
     def test_break_even_is_excluded_from_rolling_win_rate(self):
         bot = self.make_bot()
@@ -79,38 +76,87 @@ class AdaptivePerformanceTests(unittest.TestCase):
         self.assertEqual(snapshot["mode"], "caution")
         self.assertEqual(snapshot["active_take_profit"], 76.09)
 
-    def test_adaptive_stop_loss_tightens_but_never_exceeds_configured_limit(self):
-        bot = self.make_bot(adaptive_rolling_window=100, adaptive_stop_loss_enabled=True)
-        self.add_outcomes(bot, 55, 45)
+    def test_custom_tp_stop_threshold_is_respected(self):
+        bot = self.make_bot(adaptive_rolling_window=50, adaptive_stop_win_rate=10)
+        self.add_outcomes(bot, 5, 45)
         snapshot = bot._adaptive_performance_snapshot()
-        self.assertLess(snapshot["active_stop_loss"], bot.config.stop_loss)
-        self.assertGreaterEqual(snapshot["active_stop_loss"], bot.config.stop_loss * 0.5)
-
-    def test_win_rate_at_or_below_twenty_percent_triggers_stop_mode(self):
-        bot = self.make_bot()
-        self.add_outcomes(bot, 6, 24)
-        snapshot = bot._adaptive_performance_snapshot()
-        self.assertEqual(snapshot["rolling_win_rate"], 20.0)
+        self.assertEqual(snapshot["rolling_win_rate"], 10.0)
         self.assertEqual(snapshot["mode"], "stop")
-        self.assertEqual(snapshot["active_take_profit"], 0.0)
 
-    def test_rolling_window_discards_oldest_settled_outcomes(self):
-        bot = self.make_bot(adaptive_rolling_window=30)
-        self.add_outcomes(bot, 30, 0)
-        bot._record_adaptive_outcome(-1.0)
+    def test_zero_tp_window_uses_all_session_outcomes(self):
+        bot = self.make_bot(adaptive_rolling_window=0)
+        self.add_outcomes(bot, 60, 40)
         snapshot = bot._adaptive_performance_snapshot()
-        self.assertEqual(snapshot["rolling_sample_size"], 30)
-        self.assertLess(snapshot["rolling_win_rate"], 100.0)
+        self.assertEqual(snapshot["rolling_sample_size"], 100)
+        self.assertEqual(snapshot["rolling_win_rate"], 60.0)
+        self.assertEqual(len(bot.recent_outcomes), 100)
 
-    def test_adaptive_settings_validate_supported_ranges(self):
+    def test_tp_window_is_capped_at_two_hundred(self):
+        bot = self.make_bot(adaptive_rolling_window=200, adaptive_stop_loss_rolling_window=200)
+        self.add_outcomes(bot, 120, 100)
+        snapshot = bot._adaptive_performance_snapshot()
+        self.assertEqual(snapshot["rolling_sample_size"], 200)
+        self.assertEqual(len(bot.recent_outcomes), 220)
+
+    def test_adaptive_sl_uses_independent_min_max_rates_and_window(self):
+        bot = self.make_bot(
+            adaptive_rolling_window=50,
+            adaptive_stop_loss_enabled=True,
+            adaptive_stop_loss_min_win_rate=30,
+            adaptive_stop_loss_max_win_rate=60,
+            adaptive_stop_loss_rolling_window=100,
+        )
+        self.add_outcomes(bot, 45, 55)
+        snapshot = bot._adaptive_performance_snapshot()
+        self.assertEqual(snapshot["sl_rolling_sample_size"], 100)
+        self.assertEqual(snapshot["sl_rolling_win_rate"], 45.0)
+        self.assertEqual(snapshot["active_stop_loss"], 75.0)
+
+    def test_adaptive_sl_returns_to_full_hard_limit_at_max_rate(self):
+        bot = self.make_bot(
+            adaptive_stop_loss_enabled=True,
+            adaptive_stop_loss_min_win_rate=20,
+            adaptive_stop_loss_max_win_rate=66,
+        )
+        self.add_outcomes(bot, 40, 10)
+        snapshot = bot._adaptive_performance_snapshot()
+        self.assertEqual(snapshot["active_stop_loss"], 100.0)
+
+    def test_switching_tp_window_to_zero_uses_older_session_outcomes(self):
+        bot = self.make_bot(adaptive_rolling_window=50, adaptive_stop_loss_rolling_window=50)
+        self.add_outcomes(bot, 60, 40)
+        bot.config.adaptive_rolling_window = 0
+        snapshot = bot._adaptive_performance_snapshot()
+        self.assertEqual(snapshot["rolling_sample_size"], 100)
+        self.assertEqual(snapshot["rolling_win_rate"], 60.0)
+
+    def test_adaptive_sl_uses_all_session_trades_when_window_is_zero(self):
+        bot = self.make_bot(
+            adaptive_stop_loss_enabled=True,
+            adaptive_stop_loss_rolling_window=0,
+        )
+        self.add_outcomes(bot, 40, 10)
+        snapshot = bot._adaptive_performance_snapshot()
+        self.assertEqual(snapshot["sl_rolling_sample_size"], 50)
+        self.assertEqual(snapshot["sl_rolling_win_rate"], 80.0)
+
+    def test_adaptive_settings_validate_supported_ranges_and_rate_order(self):
+        for kwargs in (
+            {"adaptive_rolling_window": -1},
+            {"adaptive_rolling_window": 201},
+            {"adaptive_stop_win_rate": -1},
+            {"adaptive_stop_win_rate": 31},
+            {"adaptive_minimum_sample_size": -1},
+            {"adaptive_minimum_sample_size": 31},
+            {"adaptive_stop_loss_rolling_window": 201},
+        ):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValidationError):
+                TradingConfig(**kwargs)
+
         with self.assertRaises(ValidationError):
-            TradingConfig(adaptive_target_win_rate=49.0)
+            TradingConfig(adaptive_stop_loss_min_win_rate=66, adaptive_stop_loss_max_win_rate=66)
         with self.assertRaises(ValidationError):
-            TradingConfig(adaptive_target_win_rate=91.0)
-        with self.assertRaises(ValidationError):
-            TradingConfig(adaptive_rolling_window=29)
-        with self.assertRaises(ValidationError):
-            TradingConfig(adaptive_rolling_window=201)
+            TradingConfig(adaptive_stop_loss_min_win_rate=70, adaptive_stop_loss_max_win_rate=60)
 
 
 if __name__ == "__main__":

@@ -201,7 +201,7 @@ public struct SettingsView: View {
             Toggle("Enable Adaptive TP/SL (Digit-BOTH only)", isOn: $viewModel.config.adaptive_performance_enabled)
                 .toggleStyle(.switch)
             if viewModel.config.adaptive_performance_enabled {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text("Full Take Profit win-rate benchmark")
                             .font(.caption)
@@ -211,15 +211,87 @@ public struct SettingsView: View {
                             .font(.system(size: 12, weight: .bold, design: .monospaced))
                     }
                     Slider(value: $viewModel.config.adaptive_target_win_rate, in: 50...90, step: 1)
-                    dropdownRow("Rolling Win-Rate Window") {
-                        IntegerDropdown("Rolling Win-Rate Window", value: $viewModel.config.adaptive_rolling_window, range: 30...200)
+
+                    HStack {
+                        Text("Stop bot at/below win rate")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(String(format: "%.0f%%", viewModel.config.adaptive_stop_win_rate))
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
                     }
-                    Toggle("Tighten Stop Loss as win rate falls", isOn: $viewModel.config.adaptive_stop_loss_enabled)
-                        .toggleStyle(.switch)
-                    Text("Uses the last configured number of settled wins/losses (default 50). Break-even contracts are excluded. Protection starts after 30 decisive settlements. At or below 20% rolling win rate, the bot stops and requires a manual restart.")
+                    Slider(value: $viewModel.config.adaptive_stop_win_rate, in: 0...30, step: 1)
+                    Text("The bot stops when the selected TP win rate reaches or falls below this value, after the minimum sample has been met.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("Below the benchmark, the active Take Profit scales down proportionally. Optional adaptive Stop Loss tightens gradually but never exceeds your configured Hard Stop Loss. This feature only changes Digit-BOTH sessions; other modes retain fixed targets.")
+
+                    HStack {
+                        Text("Minimum decisive trades before TP protection")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(viewModel.config.adaptive_minimum_sample_size)")
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { Double(viewModel.config.adaptive_minimum_sample_size) },
+                            set: { viewModel.config.adaptive_minimum_sample_size = Int($0.rounded()) }
+                        ),
+                        in: 0...30,
+                        step: 1
+                    )
+                    dropdownRow("TP Rolling Win-Rate Window") {
+                        IntegerDropdown("TP Rolling Window", value: $viewModel.config.adaptive_rolling_window, range: 0...200)
+                    }
+                    Text("Set the TP window to 0 to use every decisive settled trade in the current session. Minimum sample 0 means protection starts as soon as the first decisive outcome is available; otherwise it waits for the selected number of trades.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Toggle("Enable Adaptive Stop Loss", isOn: $viewModel.config.adaptive_stop_loss_enabled)
+                        .toggleStyle(.switch)
+                    if viewModel.config.adaptive_stop_loss_enabled {
+                        HStack {
+                            Text("SL minimum acceptable win rate")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(String(format: "%.0f%%", viewModel.config.adaptive_stop_loss_min_win_rate))
+                                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        }
+                        Slider(
+                            value: Binding(
+                                get: { viewModel.config.adaptive_stop_loss_min_win_rate },
+                                set: { viewModel.config.adaptive_stop_loss_min_win_rate = min($0, viewModel.config.adaptive_stop_loss_max_win_rate - 1) }
+                            ),
+                            in: 0...99,
+                            step: 1
+                        )
+                        HStack {
+                            Text("SL maximum acceptable win rate")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(String(format: "%.0f%%", viewModel.config.adaptive_stop_loss_max_win_rate))
+                                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        }
+                        Slider(
+                            value: Binding(
+                                get: { viewModel.config.adaptive_stop_loss_max_win_rate },
+                                set: { viewModel.config.adaptive_stop_loss_max_win_rate = max($0, viewModel.config.adaptive_stop_loss_min_win_rate + 1) }
+                            ),
+                            in: 1...100,
+                            step: 1
+                        )
+                        dropdownRow("SL Rolling Win-Rate Window") {
+                            IntegerDropdown("SL Rolling Window", value: $viewModel.config.adaptive_stop_loss_rolling_window, range: 0...200)
+                        }
+                        Text("SL is tightest at or below its minimum acceptable rate, gradually relaxes between the two rates, and returns to the configured Hard Stop Loss at or above the maximum. Set its window to 0 to use all decisive session trades.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text("Break-even contracts are excluded. Adaptive protection is limited to Digit-BOTH. The optional adaptive SL only tightens the configured Hard Stop Loss; it never increases it.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
