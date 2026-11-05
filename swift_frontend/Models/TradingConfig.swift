@@ -12,6 +12,8 @@ public struct TradingConfig: Codable, Equatable {
     public var stop_loss: Double
     public var auto_restart_after_stop: Bool
     public var auto_restart_after_take_profit: Bool
+    public var auto_restart_delay_hours: Int
+    public var auto_restart_delay_minutes: Int
     public var max_runs: Int
     public var max_loss_streak: Int
     public var loss_cooldown_hours: Int
@@ -50,6 +52,8 @@ public struct TradingConfig: Codable, Equatable {
         stop_loss: Double = 500.0,
         auto_restart_after_stop: Bool = false,
         auto_restart_after_take_profit: Bool = false,
+        auto_restart_delay_hours: Int = 0,
+        auto_restart_delay_minutes: Int = 1,
         max_runs: Int = 250,
         max_loss_streak: Int = 4,
         loss_cooldown_hours: Int = 0,
@@ -85,6 +89,8 @@ public struct TradingConfig: Codable, Equatable {
         self.stop_loss = stop_loss
         self.auto_restart_after_stop = auto_restart_after_stop
         self.auto_restart_after_take_profit = auto_restart_after_take_profit
+        self.auto_restart_delay_hours = auto_restart_delay_hours
+        self.auto_restart_delay_minutes = auto_restart_delay_minutes
         self.max_runs = max_runs
         self.max_loss_streak = max_loss_streak
         self.loss_cooldown_hours = loss_cooldown_hours
@@ -114,6 +120,7 @@ public struct TradingConfig: Codable, Equatable {
         case api_token, app_id, symbol, base_stake, max_stake
         case martingale_enabled, martingale, take_profit, stop_loss
         case auto_restart_after_stop, auto_restart_after_take_profit
+        case auto_restart_delay_hours, auto_restart_delay_minutes
         case max_runs, max_loss_streak, loss_cooldown_hours, loss_cooldown_minutes, loss_cooldown_seconds
         case under_trigger_digit, over_trigger_digit
         case win_predict_digit, both_under_barrier, both_over_barrier
@@ -141,6 +148,8 @@ public struct TradingConfig: Codable, Equatable {
         // One source of truth: auto_restart_after_stop.
         try c.encode(auto_restart_after_stop, forKey: .auto_restart_after_stop)
         try c.encode(auto_restart_after_stop, forKey: .auto_restart_after_take_profit)
+        try c.encode(auto_restart_delay_hours, forKey: .auto_restart_delay_hours)
+        try c.encode(auto_restart_delay_minutes, forKey: .auto_restart_delay_minutes)
 
         try c.encode(max_runs, forKey: .max_runs)
         try c.encode(max_loss_streak, forKey: .max_loss_streak)
@@ -189,6 +198,8 @@ public struct TradingConfig: Codable, Equatable {
         let resolvedAutoRestart = (autoStop == true) || (autoTP == true)
         auto_restart_after_stop = resolvedAutoRestart
         auto_restart_after_take_profit = resolvedAutoRestart
+        auto_restart_delay_hours = min(max(try c.decodeIfPresent(Int.self, forKey: .auto_restart_delay_hours) ?? 0, 0), 24)
+        auto_restart_delay_minutes = min(max(try c.decodeIfPresent(Int.self, forKey: .auto_restart_delay_minutes) ?? 1, 0), 59)
         max_runs = try c.decodeIfPresent(Int.self, forKey: .max_runs) ?? 250
         max_loss_streak = try c.decodeIfPresent(Int.self, forKey: .max_loss_streak) ?? 4
         loss_cooldown_hours = min(max(try c.decodeIfPresent(Int.self, forKey: .loss_cooldown_hours) ?? 0, 0), 24)

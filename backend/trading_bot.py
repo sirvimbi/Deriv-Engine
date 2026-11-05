@@ -415,6 +415,12 @@ class TradingBot:
             self.add_log("error", f"Failed to subscribe to ticks: {str(e)}")
             raise e
 
+    def _auto_restart_delay_seconds(self) -> int:
+        """Return the configured auto-restart delay in seconds."""
+        hours = max(0, int(self.config.auto_restart_delay_hours))
+        minutes = max(0, int(self.config.auto_restart_delay_minutes))
+        return hours * 3600 + minutes * 60
+
     async def stop(self, reason: str = "Stopped by user"):
         if not self.is_running:
             return
@@ -426,21 +432,36 @@ class TradingBot:
             pass
         self.add_log("warn", f"Bot stopped: {reason} | Total Profit: ${self.total_profit:.2f} | Runs: {self.runs}")
         if (reason.startswith(("Take Profit limit reached", "Stop Loss limit reached")) and self.config.auto_restart_after_stop and (self._auto_restart_task is None or self._auto_restart_task.done())):
-            self.add_log("info", f"AUTO-RESTART ARMED | {reason.split(' limit reached', 1)[0]} reached. Bot will restart in 60 seconds.")
-            self._auto_restart_task = asyncio.create_task(self._restart_after_stop())
+            delay_seconds = self._auto_restart_delay_seconds()
+            delay_hours, remainder = divmod(delay_seconds, 3600)
+            delay_minutes = remainder // 60
+            delay_label = f"{delay_hours:02d}:{delay_minutes:02d}"
+            self.add_log(
+                "info",
+                f"AUTO-RESTART ARMED | {reason.split(' limit reached', 1)[0]} reached. "
+                f"Bot will restart after {delay_label} (hh:mm)."
+            )
+            self._auto_restart_task = asyncio.create_task(self._restart_after_stop(delay_seconds))
         if self.status_broadcast_callback:
             try:
                 await self.status_broadcast_callback("status", self.get_status().dict())
             except Exception:
                 pass
 
-    async def _restart_after_stop(self):
-        """Restart once, 60 seconds after a Take Profit or Hard Stop Loss stop when enabled."""
+    async def _restart_after_stop(self, delay_seconds: int):
+        """Restart once after the configured TP/SL delay when auto-restart is enabled."""
         try:
-            await asyncio.sleep(60)
+            delay_seconds = max(0, int(delay_seconds))
+            await asyncio.sleep(delay_seconds)
             if self.is_running or not self.config.auto_restart_after_stop:
                 return
-            self.add_log("info", "AUTO-RESTART | 60-second stop cooldown complete. Restarting bot.")
+            delay_hours, remainder = divmod(delay_seconds, 3600)
+            delay_minutes = remainder // 60
+            delay_label = f"{delay_hours:02d}:{delay_minutes:02d}"
+            self.add_log(
+                "info",
+                f"AUTO-RESTART | {delay_label} delay complete. Restarting bot."
+            )
             await self.start()
         except asyncio.CancelledError:
             raise
