@@ -26,6 +26,7 @@ class TradingBot:
         self.recovery_win_count = 0
         # Positive amount of loss stake still outstanding in optional loss-cycle recovery mode.
         self.recovery_loss_stake = 0.0
+        self.recovery_max_stake_mode = False
         self.in_recovery_cycle = False
         self.recovery_phase = 0  # 0 normal, 1 loss digit, 2 recovery target digit
         self.recovery_prediction_active = False
@@ -81,8 +82,8 @@ class TradingBot:
         timestamp = datetime.now().strftime("%H:%M:%S")
         log_item = LogMessage(timestamp=timestamp, level=level, message=message)
         self.logs.append(log_item)
-        if len(self.logs) > 200:
-            self.logs.pop(0)
+        # Preserve every log entry for the current session. The dashboard
+        # derives its complete trade table from placement/settlement logs.
         logger.info(f"[{level.upper()}] {message}")
         if self.status_broadcast_callback:
             try:
@@ -257,6 +258,13 @@ class TradingBot:
         if not self.in_recovery_cycle:
             return self.config.base_stake
 
+        # When a live proposal cannot meet the recovery target within the
+        # configured ceiling, keep using that ceiling while losses remain.
+        if self.recovery_max_stake_mode:
+            if self.recovery_loss_stake > 0.005:
+                return round(float(self.config.max_stake), 4)
+            self.recovery_max_stake_mode = False
+
         if (
             self.config.martingale_enabled
             and self.config.martingale > 0
@@ -349,6 +357,7 @@ class TradingBot:
         self.loss_streak = 0
         self.recovery_win_count = 0
         self.recovery_loss_stake = 0.0
+        self.recovery_max_stake_mode = False
         self.in_recovery_cycle = False
         self.recovery_phase = 0
         self.recovery_prediction_active = False
@@ -897,6 +906,15 @@ class TradingBot:
         # The client may resize a loss-cycle recovery trade from the live proposal payout.
         # Settlement must use the actual purchased stake.
         trade_stake = float(buy_res.get("stake", trade_stake))
+        if buy_res.get("recovery_target_capped") and recovery_target_profit is not None:
+            self.recovery_max_stake_mode = True
+            required_stake = float(buy_res.get("recovery_required_stake", trade_stake))
+            self.add_log(
+                "warn",
+                f"RECOVERY MAX STAKE MODE | target_profit=${recovery_target_profit:.2f} | "
+                f"required_stake=${required_stake:.2f} exceeds max=${self.config.max_stake:.2f}. "
+                "Continuing at max stake until the outstanding loss is recovered."
+            )
         if recovery_target_profit is not None:
             self.stake = trade_stake
 
@@ -1288,6 +1306,11 @@ class TradingBot:
                         max(0.0, self.recovery_loss_stake - recovered_profit),
                         2,
                     )
+                    if self.recovery_loss_stake <= 0.005:
+                        self.recovery_loss_stake = 0.0
+                        # Monetary recovery is complete. Any remaining
+                        # configured recovery wins continue at normal sizing.
+                        self.recovery_max_stake_mode = False
                     required_recovery_wins = max(
                         self.config.recovery_wins_required,
                         self.config.loss_cycle_target,
@@ -1302,6 +1325,7 @@ class TradingBot:
                         self.stake = self.config.base_stake
                         self.recovery_win_count = 0
                         self.martingale_executions_remaining = 0
+                        self.recovery_max_stake_mode = False
                         self.in_recovery_cycle = False
                         self.recovery_phase = 0
                         self.recovery_prediction_active = False
@@ -1341,6 +1365,7 @@ class TradingBot:
                     if self.recovery_win_count >= target:
                         self.stake = self.config.base_stake
                         self.recovery_win_count = 0
+                        self.recovery_max_stake_mode = False
                         self.in_recovery_cycle = False
                         self.recovery_phase = 0
                         self.recovery_prediction_active = False
@@ -1369,6 +1394,7 @@ class TradingBot:
                 self.stake = self.config.base_stake
                 self.recovery_win_count = 0
                 self.recovery_loss_stake = 0.0
+                self.recovery_max_stake_mode = False
                 self.martingale_executions_remaining = 0
                 self.recovery_prediction_active = False
                 self.recovery_phase = 0
@@ -1422,6 +1448,7 @@ class TradingBot:
                 self.recovery_win_count = 0
                 self.recovery_loss_stake = 0.0
                 self.in_recovery_cycle = False
+                self.recovery_max_stake_mode = False
                 self.recovery_phase = 0
                 self.recovery_prediction_active = False
                 self.active_contract_type = None
@@ -1437,6 +1464,8 @@ class TradingBot:
                 target_wins = max(self.config.recovery_wins_required, self.config.loss_cycle_target)
 
                 if target_wins > 0:
+                    if not self.in_recovery_cycle:
+                        self.recovery_max_stake_mode = False
                     self.in_recovery_cycle = True
                     # Compose the next recovery stake after a loss using the lost trade stake
                     self.stake = self._calculate_recovery_stake(trade_stake)
@@ -1482,6 +1511,7 @@ class TradingBot:
                     # to the immediate next execution, but it must be calculated
                     # from base_stake rather than the already-lost stake.
                     self.in_recovery_cycle = False
+                    self.recovery_max_stake_mode = False
                     self.recovery_phase = 0
                     self.recovery_prediction_active = False
                     self.active_contract_type = None

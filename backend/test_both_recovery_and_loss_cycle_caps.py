@@ -120,26 +120,55 @@ def test_loss_cycle_proposal_sizing_does_not_force_stake_to_maximum():
     assert client.buy_request["price"] == 13.51
 
 
-def test_loss_cycle_sizing_fails_safely_when_target_exceeds_maximum_stake():
+def test_loss_cycle_uses_maximum_stake_when_target_exceeds_cap_and_flags_continuation():
     client = FakeProposalClient()
 
-    try:
-        asyncio.run(client.buy_contract(
-            symbol="1HZ10V",
-            contract_type="DIGITUNDER",
-            amount=13.51,
-            duration=1,
-            duration_unit="t",
-            barrier=6,
-            currency="USD",
-            target_profit=150.0,
-            max_amount=200.0,
-        ))
-    except Exception as exc:
-        assert "cannot be achieved within max stake" in str(exc)
-    else:
-        raise AssertionError("Sizing should stop rather than exceed the configured maximum.")
-    assert client.buy_request is None
+    result = asyncio.run(client.buy_contract(
+        symbol="1HZ10V",
+        contract_type="DIGITUNDER",
+        amount=13.51,
+        duration=1,
+        duration_unit="t",
+        barrier=6,
+        currency="USD",
+        target_profit=150.0,
+        max_amount=20.0,
+    ))
+
+    # A 50% net return needs $300 to earn $150. Re-quote at the configured
+    # $20 ceiling rather than rejecting the purchase.
+    assert client.proposal_amounts == [Decimal("13.51"), Decimal("20.00")]
+    assert result["stake"] == 20.0
+    assert result["recovery_target_capped"] is True
+    assert result["recovery_required_stake"] == 300.0
+    assert client.buy_request["price"] == 20.0
+
+
+def test_recovery_max_stake_mode_holds_cap_until_outstanding_loss_is_cleared():
+    bot = TradingBot(TradingConfig(
+        base_stake=1.0,
+        max_stake=20.0,
+        loss_cycle_target=2,
+    ))
+    bot.in_recovery_cycle = True
+    bot.recovery_loss_stake = 27.05
+    bot.recovery_max_stake_mode = True
+
+    assert bot._next_recovery_stake() == 20.0
+
+    bot.recovery_loss_stake = 0.0
+    assert bot._next_recovery_stake() == 1.0
+    assert bot.recovery_max_stake_mode is False
+
+
+def test_dashboard_execution_log_retains_more_than_200_session_entries():
+    bot = TradingBot(TradingConfig())
+    for index in range(250):
+        bot.add_log("info", f"session entry {index}")
+
+    assert len(bot.logs) == 250
+    assert bot.logs[0].message == "session entry 0"
+    assert bot.logs[-1].message == "session entry 249"
 
 
 

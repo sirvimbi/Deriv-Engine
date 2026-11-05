@@ -195,7 +195,7 @@ public struct SettingsView: View {
                 DecimalAmountDropdown("Take Profit", value: $viewModel.config.take_profit, range: 0...500)
             }
             dropdownRow("Hard Stop Loss ($)") {
-                DecimalAmountDropdown("Hard Stop Loss", value: $viewModel.config.stop_loss, range: 0...500)
+                DecimalAmountDropdown("Hard Stop Loss", value: $viewModel.config.stop_loss, range: 0...1000)
             }
             Toggle("Auto-start after Take Profit / Stop Loss", isOn: $viewModel.config.auto_restart_after_stop)
                 .toggleStyle(.switch)

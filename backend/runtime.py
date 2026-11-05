@@ -3,5 +3,5 @@
 Bump ENGINE_BUILD whenever trading/execution semantics change. The macOS
 client uses this value to refuse starting against an older backend process.
 """
-ENGINE_BUILD = "recovery-state-v10-unknown-proposal-retry"
-ENGINE_DESCRIPTION = "Retries stale/unknown Deriv proposals with fresh quotes; resumes after rejected unpurchased entries; digit-5 retry and contract-status recovery"
+ENGINE_BUILD = "recovery-state-v11-session-trades-recovery-cap"
+ENGINE_DESCRIPTION = "Retains all session trade logs, supports a $1,000 hard stop loss, and continues capped recovery trades until outstanding losses clear"

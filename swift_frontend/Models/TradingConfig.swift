@@ -183,7 +183,7 @@ public struct TradingConfig: Codable, Equatable {
         martingale_enabled = try c.decodeIfPresent(Bool.self, forKey: .martingale_enabled) ?? false
         martingale = try c.decodeIfPresent(Double.self, forKey: .martingale) ?? 2.0
         take_profit = try c.decodeIfPresent(Double.self, forKey: .take_profit) ?? 500.0
-        stop_loss = min(max(try c.decodeIfPresent(Double.self, forKey: .stop_loss) ?? 500.0, 0), 500)
+        stop_loss = min(max(try c.decodeIfPresent(Double.self, forKey: .stop_loss) ?? 500.0, 0), 1000)
         let autoStop = try c.decodeIfPresent(Bool.self, forKey: .auto_restart_after_stop)
         let autoTP = try c.decodeIfPresent(Bool.self, forKey: .auto_restart_after_take_profit)
         let resolvedAutoRestart = (autoStop == true) || (autoTP == true)
