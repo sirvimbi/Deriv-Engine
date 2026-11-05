@@ -47,3 +47,14 @@ def test_trading_config_preserves_decimal_stakes():
     assert config.base_stake == 2.50
     assert config.max_stake == 25.75
     assert config.martingale == 1.5
+
+
+
+def test_hard_stop_loss_accepts_values_up_to_1000_only():
+    assert TradingConfig(stop_loss=1000.0).stop_loss == 1000.0
+    try:
+        TradingConfig(stop_loss=1000.01)
+    except Exception:
+        pass
+    else:
+        raise AssertionError("Hard Stop Loss must not exceed $1,000.")

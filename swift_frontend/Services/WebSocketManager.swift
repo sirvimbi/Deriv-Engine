@@ -252,10 +252,9 @@ public class WebSocketManager: ObservableObject {
                     } else if type == "log", let logDict = json["data"] as? [String: Any] {
                         if let logData = try? JSONSerialization.data(withJSONObject: logDict),
                            let log = try? JSONDecoder().decode(LogMessage.self, from: logData) {
+                            // Keep all execution entries for the current bot
+                            // session so the dashboard trade table stays complete.
                             self.newLogs.append(log)
-                            if self.newLogs.count > 200 {
-                                self.newLogs.removeFirst()
-                            }
                         }
                     }
                 }

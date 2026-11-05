@@ -575,6 +575,8 @@ class DerivClient:
         if not proposal_id or ask_price_raw is None:
             raise Exception("Deriv returned an incomplete contract proposal.")
 
+        recovery_target_capped = False
+        recovery_required_amount: Optional[Decimal] = None
         if target_profit_decimal is not None:
             for _ in range(3):
                 try:
@@ -602,18 +604,26 @@ class DerivClient:
                 # reduce the configured Martingale/loss-cycle stake merely
                 # because the live payout can recover the target with less.
                 calculated_amount = max(calculated_amount, requested_amount)
+                recovery_required_amount = calculated_amount
                 if max_amount is not None:
                     max_amount_decimal = Decimal(str(max_amount)).quantize(
                         Decimal("0.01"), rounding=ROUND_DOWN
                     )
                     if calculated_amount > max_amount_decimal:
-                        raise Exception(
-                            f"Recovery target cannot be achieved within max stake ${max_amount_decimal:.2f}; "
-                            f"required stake is ${calculated_amount:.2f} for target profit ${target_profit_decimal:.2f}."
+                        recovery_target_capped = True
+                        logger.warning(
+                            "Recovery target exceeds configured max stake | target_profit=%s | "
+                            "required_stake=%s | max_stake=%s. Buying at max stake and continuing "
+                            "recovery across subsequent wins.",
+                            f"{target_profit_decimal:.2f}",
+                            f"{calculated_amount:.2f}",
+                            f"{max_amount_decimal:.2f}",
                         )
-                    # max_amount is a hard ceiling, not a target stake. Keep the
-                    # calculated amount when it is below the cap; forcing it to the
-                    # cap turns a small recovery request into a maximum-size trade.
+                        calculated_amount = max_amount_decimal
+                    else:
+                        recovery_target_capped = False
+                    # Use the cap only when the live quote requires more;
+                    # otherwise preserve the calculated stake.
                 calculated_amount = max(Decimal("0.01"), calculated_amount)
 
                 logger.info(
@@ -697,6 +707,10 @@ class DerivClient:
         if isinstance(buy, dict):
             buy.setdefault("stake", float(normalized_amount))
             buy.setdefault("buy_price", float(buy_price_decimal))
+            if recovery_target_capped and recovery_required_amount is not None:
+                buy["recovery_target_capped"] = True
+                buy["recovery_required_stake"] = float(recovery_required_amount)
+                buy["recovery_target_profit"] = float(target_profit_decimal)
         return buy
 
     async def subscribe_contract(self, contract_id: int, callback: Callable):

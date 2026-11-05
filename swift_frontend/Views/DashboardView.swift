@@ -365,7 +365,7 @@ public struct DashboardView: View {
             .padding(.vertical, 7)
             .background(Color.black.opacity(0.16))
 
-            ScrollView {
+            ScrollView(.vertical) {
                 LazyVStack(spacing: 2) {
                     ForEach(viewModel.tradeLogRows.reversed()) { row in
                         HStack(spacing: 0) {
@@ -392,8 +392,10 @@ public struct DashboardView: View {
                 }
                 .padding(4)
             }
+            .scrollIndicators(.visible)
+            .frame(height: 520)
         }
-        .frame(minHeight: 520, maxHeight: 720)
+        .frame(maxWidth: .infinity)
         .background(Color.black.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadiusMedium, style: .continuous))
     }

@@ -80,7 +80,7 @@ public class SettingsViewModel: ObservableObject {
         config.loss_cooldown_seconds = min(max(config.loss_cooldown_seconds, 0), 59)
         config.martingale = min(max(config.martingale, 0), 50)
         config.take_profit = min(max(config.take_profit, 0), 500)
-        config.stop_loss = min(max(config.stop_loss, 0), 500)
+        config.stop_loss = min(max(config.stop_loss, 0), 1000)
     }
 
     /// Switch the actual authenticated Deriv trading account and refresh the
