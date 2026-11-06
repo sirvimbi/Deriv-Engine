@@ -199,8 +199,17 @@ public class APIService {
         components?.queryItems = queryItems
         guard let url = components?.url else { throw URLError(.badURL) }
 
-        let (data, _) = try await URLSession.shared.data(from: url)
-        let res = try JSONDecoder().decode(StatementResponse.self, from: data)
+        let (data, response) = try await URLSession.shared.data(from: url)
+        // The backend can return an HTTP error envelope (for example when
+        // Deriv is unavailable or authorization fails). Validate it before
+        // decoding the success payload, otherwise JSONDecoder reports only
+        // a misleading missing-key error for "status" or "transactions".
+        try validateHTTPResponse(response, data: data, endpoint: "Deriv statement")
+        let res = try decodeResponse(
+            StatementResponse.self,
+            from: data,
+            endpoint: "Deriv statement"
+        )
         return res.transactions
     }
 
@@ -213,8 +222,15 @@ public class APIService {
         components?.queryItems = queryItems
         guard let url = components?.url else { throw URLError(.badURL) }
 
-        let (data, _) = try await URLSession.shared.data(from: url)
-        let res = try JSONDecoder().decode(ProfitTableResponse.self, from: data)
+        let (data, response) = try await URLSession.shared.data(from: url)
+        // Match Statement handling so an upstream Deriv error is not
+        // misreported as a malformed/missing transactions field.
+        try validateHTTPResponse(response, data: data, endpoint: "Deriv profit table")
+        let res = try decodeResponse(
+            ProfitTableResponse.self,
+            from: data,
+            endpoint: "Deriv profit table"
+        )
         return res.transactions
     }
 
