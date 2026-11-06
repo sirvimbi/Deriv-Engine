@@ -127,10 +127,12 @@ public struct TradingSessionSetup: Codable {
 }
 
 public struct TradingSessionTrade: Codable, Identifiable {
-    public var id: String { contract_id.map { String($0) } ?? String(settled_at) }
+    public var id: String {
+        contract_id.map { String($0) } ?? settled_at.map { String($0) } ?? "trade-\(placed_at)"
+    }
     public let contract_id: Int?
     public let placed_at: Double
-    public let settled_at: Double
+    public let settled_at: Double?
     public let contract_type: String
     public let entry_signal_digit: Int?
     public let generator_digit: Int?
