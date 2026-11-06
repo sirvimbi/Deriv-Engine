@@ -109,7 +109,7 @@ public class HistoryViewModel: ObservableObject {
     ///   only ever appears for the very first load, when there's no existing
     ///   content on screen to protect.
     public func loadHistory(force: Bool = false, silent: Bool = false) {
-        if suppressAutoRefresh && !force { return }
+        if suppressAutoRefresh && selectedTab != 2 && !force { return }
         Task {
             let hasVisibleContent = selectedTab == 2
                 ? !archivedSessions.isEmpty
