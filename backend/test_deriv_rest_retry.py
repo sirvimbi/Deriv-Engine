@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import requests
 
@@ -103,7 +103,7 @@ class DerivRestRetryTests(unittest.TestCase):
 
 class AutoRestartRetryTests(unittest.IsolatedAsyncioTestCase):
     async def test_auto_restart_retries_temporary_deriv_outage(self):
-        bot = TradingBot(TradingConfig(auto_restart_after_stop=True))
+        bot = TradingBot(TradingConfig(auto_restart_after_stop=True), session_archive=Mock())
         attempts = 0
 
         async def start_with_temporary_failure():
@@ -123,7 +123,7 @@ class AutoRestartRetryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any("AUTO-RESTART SUCCESS" in item.message for item in bot.logs))
 
     async def test_auto_restart_does_not_loop_on_permanent_auth_error(self):
-        bot = TradingBot(TradingConfig(auto_restart_after_stop=True))
+        bot = TradingBot(TradingConfig(auto_restart_after_stop=True), session_archive=Mock())
         attempts = 0
 
         async def start_with_invalid_token():
