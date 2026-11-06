@@ -1,11 +1,14 @@
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
+from fastapi import HTTPException
+
 import requests
 
 from deriv_client import DerivClient, DerivTransientServiceError
 from models import TradingConfig
 from trading_bot import TradingBot
+import main
 
 
 class FakeResponse:
@@ -103,6 +106,20 @@ class DerivRestRetryTests(unittest.TestCase):
         )
         self.assertEqual(request.call_count, 2)
         sleep.assert_called_once_with(1.0)
+
+
+class BalanceEndpointAuthGuardTests(unittest.IsolatedAsyncioTestCase):
+    async def test_background_balance_refresh_does_not_start_authentication(self):
+        with patch.object(main, "bot") as bot_mock:
+            bot_mock.client.authorized = False
+            bot_mock.client.authorize = AsyncMock()
+
+            with self.assertRaises(HTTPException) as raised:
+                await main.get_account_balance()
+
+            self.assertEqual(raised.exception.status_code, 503)
+            self.assertIn("background balance refresh will not initiate", raised.exception.detail)
+            bot_mock.client.authorize.assert_not_awaited()
 
 
 class AutoRestartRetryTests(unittest.IsolatedAsyncioTestCase):
