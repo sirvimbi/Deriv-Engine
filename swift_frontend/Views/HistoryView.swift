@@ -395,12 +395,12 @@ public struct HistoryView: View {
 
     private func adaptiveTPDescription(_ setup: TradingSessionSetup) -> String {
         guard setup.adaptive_performance_enabled else { return "OFF" }
-        return "ON • benchmark \(setup.adaptive_target_win_rate, specifier: "%.1f")% • stop ≤ \(setup.adaptive_stop_win_rate, specifier: "%.1f")% • min sample \(setup.adaptive_minimum_sample_size) • window \(setup.adaptive_rolling_window == 0 ? "All session" : "\(setup.adaptive_rolling_window)")"
+        return "ON • benchmark \(String(format: "%.1f", setup.adaptive_target_win_rate))% • stop ≤ \(String(format: "%.1f", setup.adaptive_stop_win_rate))% • min sample \(setup.adaptive_minimum_sample_size) • window \(setup.adaptive_rolling_window == 0 ? "All session" : "\(setup.adaptive_rolling_window)")"
     }
 
     private func adaptiveSLDescription(_ setup: TradingSessionSetup) -> String {
         guard setup.adaptive_stop_loss_enabled else { return "OFF" }
-        return "ON • \(setup.adaptive_stop_loss_min_win_rate, specifier: "%.1f")%–\(setup.adaptive_stop_loss_max_win_rate, specifier: "%.1f")% • window \(setup.adaptive_stop_loss_rolling_window == 0 ? "All session" : "\(setup.adaptive_stop_loss_rolling_window)")"
+        return "ON • \(String(format: "%.1f", setup.adaptive_stop_loss_min_win_rate))%–\(String(format: "%.1f", setup.adaptive_stop_loss_max_win_rate))% • window \(setup.adaptive_stop_loss_rolling_window == 0 ? "All session" : "\(setup.adaptive_stop_loss_rolling_window)")"
     }
 
     private func money(_ value: Double) -> String {
