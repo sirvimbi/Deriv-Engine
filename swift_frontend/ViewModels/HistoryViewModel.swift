@@ -4,13 +4,14 @@ import Combine
 @MainActor
 public class HistoryViewModel: ObservableObject {
     @Published public var transactions: [Transaction] = []
+    @Published public var archivedSessions: [TradingSessionRecord] = []
     /// Full-screen spinner — reserved for the very first load, when there is
     /// nothing on screen yet to preserve.
     @Published public var isLoading: Bool = false
     /// Small, non-blocking indicator for background/pushed refreshes so the
     /// user can see data is live without the list ever disappearing.
     @Published public var isSyncing: Bool = false
-    @Published public var selectedTab: Int = 0 // 0: Statement, 1: Profit Table
+    @Published public var selectedTab: Int = 0 // 0: Statement, 1: Profit Table, 2: Saved Sessions
     @Published public var limit: Int = 50
     @Published public var totalProfitSummary: Double = 0.0
     @Published public var totalTradesCount: Int = 0
@@ -86,6 +87,23 @@ public class HistoryViewModel: ObservableObject {
         errorMessage = nil
     }
 
+    /// Permanently clears the saved archive after the user confirms.
+    /// When the bot is still running, the backend starts a fresh archive
+    /// segment so later settlements continue to be stored.
+    public func clearArchivedSessions() {
+        Task {
+            isSyncing = true
+            errorMessage = nil
+            do {
+                try await APIService.shared.clearSessionHistory()
+                archivedSessions = try await APIService.shared.fetchSessionHistory()
+            } catch {
+                errorMessage = "Failed to clear saved sessions: \(error.localizedDescription)"
+            }
+            isSyncing = false
+        }
+    }
+
     /// - Parameter silent: when true, the full-screen spinner never appears —
     ///   used for every background or pushed refresh. The blocking spinner
     ///   only ever appears for the very first load, when there's no existing
@@ -93,7 +111,10 @@ public class HistoryViewModel: ObservableObject {
     public func loadHistory(force: Bool = false, silent: Bool = false) {
         if suppressAutoRefresh && !force { return }
         Task {
-            let shouldBlock = !silent && transactions.isEmpty
+            let hasVisibleContent = selectedTab == 2
+                ? !archivedSessions.isEmpty
+                : !transactions.isEmpty
+            let shouldBlock = !silent && !hasVisibleContent
             if shouldBlock {
                 isLoading = true
             } else {
@@ -105,14 +126,18 @@ public class HistoryViewModel: ObservableObject {
                 // timestamp server-side. Do not perform a second session
                 // probe: older running backends can return 404 here and
                 // prevent all transaction/profit data from loading.
-                let fetched: [Transaction]
-                if selectedTab == 0 {
-                    fetched = try await APIService.shared.fetchStatement(limit: limit)
+                if selectedTab == 2 {
+                    self.archivedSessions = try await APIService.shared.fetchSessionHistory()
                 } else {
-                    fetched = try await APIService.shared.fetchProfitTable(limit: limit)
+                    let fetched: [Transaction]
+                    if selectedTab == 0 {
+                        fetched = try await APIService.shared.fetchStatement(limit: limit)
+                    } else {
+                        fetched = try await APIService.shared.fetchProfitTable(limit: limit)
+                    }
+                    self.transactions = fetched
+                    calculateSummary()
                 }
-                self.transactions = fetched
-                calculateSummary()
             } catch {
                 self.errorMessage = "Failed to fetch history: \(error.localizedDescription)"
             }
