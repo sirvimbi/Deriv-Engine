@@ -234,7 +234,20 @@ class SessionArchive:
                 )
             else:
                 old_stake = float(existing.get("stake") or 0.0)
+                # These fields describe the protection state at entry and must
+                # not be replaced by the new rolling rates after this trade settles.
+                entry_protection_snapshot = {
+                    key: existing[key]
+                    for key in (
+                        "active_take_profit",
+                        "active_stop_loss",
+                        "rolling_win_rate",
+                        "sl_rolling_win_rate",
+                    )
+                    if key in existing
+                }
                 existing.update(saved_trade)
+                existing.update(entry_protection_snapshot)
                 summary["total_stake"] = round(
                     float(summary.get("total_stake", 0.0)) + stake - old_stake, 8
                 )
