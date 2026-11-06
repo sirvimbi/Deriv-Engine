@@ -98,7 +98,7 @@ public struct HistoryView: View {
                     }
                 }
             }
-            .alert("Clear saved session history?", isPresented: $showClearSessionsConfirmation) {
+            .confirmationDialog("Clear saved session history?", isPresented: $showClearSessionsConfirmation, titleVisibility: .visible) {
                 Button("Clear Archive", role: .destructive) {
                     viewModel.clearArchivedSessions()
                 }
