@@ -2,6 +2,7 @@
 import csv
 import json
 import os
+import sys
 import threading
 import time
 import uuid
@@ -47,11 +48,24 @@ class SessionArchive:
 
     def __init__(self, storage_path: Optional[str] = None):
         configured_path = storage_path or os.environ.get("DERIV_SESSION_HISTORY_FILE")
-        self.path = (
-            Path(configured_path).expanduser()
-            if configured_path
-            else Path(__file__).resolve().parent / "data" / "session_history.json"
-        )
+        if configured_path:
+            self.path = Path(configured_path).expanduser()
+        elif sys.platform == "darwin":
+            self.path = (
+                Path.home()
+                / "Library"
+                / "Application Support"
+                / "Deriv Engine"
+                / "session_history.json"
+            )
+        else:
+            self.path = (
+                Path.home()
+                / ".local"
+                / "share"
+                / "deriv-engine"
+                / "session_history.json"
+            )
         self._lock = threading.RLock()
         self._sessions: List[Dict[str, Any]] = self._load()
         self._recover_interrupted_sessions()
