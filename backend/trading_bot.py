@@ -433,6 +433,10 @@ class TradingBot:
             await self.client.subscribe_ticks(self.config.symbol, self._on_tick)
         except Exception as e:
             self.is_running = False
+            try:
+                self.session_archive.finish_session(self.session_id, f"Tick subscription failed: {e}")
+            except Exception as archive_error:
+                logger.warning("Unable to finalize failed session archive: %s", archive_error)
             self.add_log("error", f"Failed to subscribe to ticks: {str(e)}")
             raise e
 
