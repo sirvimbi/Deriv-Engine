@@ -73,6 +73,52 @@ class SessionArchiveTests(unittest.TestCase):
         self.assertEqual(finished["duration_seconds"], 100)
         self.assertEqual(finished["stop_reason"], "Stopped by user")
 
+    def test_open_trade_is_saved_then_updated_without_double_count(self):
+        session_id = self.archive.start_session(self.config, started_at=1000)
+        self.assertTrue(self.archive.record_trade_open(session_id, {
+            "contract_id": 789,
+            "placed_at": 1001,
+            "settled_at": None,
+            "contract_type": "DIGITOVER",
+            "barrier": 5,
+            "stake": 6.0,
+            "buy_price": 6.0,
+            "profit": 0.0,
+            "outcome": "OPEN",
+        }))
+        open_session = self.archive.get_sessions()[0]
+        self.assertEqual(open_session["summary"]["trade_count"], 1)
+        self.assertEqual(open_session["summary"]["wins"], 0)
+        self.assertEqual(open_session["trades"][0]["outcome"], "OPEN")
+
+        # A stop event can close the bot session before Deriv sends the
+        # final settlement; the original session still receives that result.
+        self.archive.finish_session(session_id, "Stopped by user", finished_at=1010)
+        self.assertTrue(self.archive.record_trade(session_id, {
+            "contract_id": 789,
+            "placed_at": 1001,
+            "settled_at": 1020,
+            "contract_type": "DIGITOVER",
+            "barrier": 5,
+            "stake": 6.0,
+            "buy_price": 6.0,
+            "payout": 11.4,
+            "profit": 5.4,
+            "outcome": "WIN",
+            "deriv_status": "won",
+            "exit_digit": 8,
+        }))
+        settled_session = self.archive.get_sessions()[0]
+        self.assertEqual(settled_session["summary"]["trade_count"], 1)
+        self.assertEqual(settled_session["summary"]["wins"], 1)
+        self.assertEqual(settled_session["summary"]["losses"], 0)
+        self.assertAlmostEqual(settled_session["summary"]["total_stake"], 6.0)
+        self.assertAlmostEqual(settled_session["summary"]["total_profit"], 5.4)
+        self.assertEqual(settled_session["trades"][0]["outcome"], "WIN")
+        self.assertFalse(self.archive.record_trade(session_id, {
+            "contract_id": 789, "stake": 6.0, "profit": 5.4, "outcome": "WIN"
+        }))
+
     def test_open_sessions_are_recovered_as_interrupted_after_restart(self):
         session_id = self.archive.start_session(self.config, started_at=1000)
         restarted = SessionArchive(str(self.archive_path))
