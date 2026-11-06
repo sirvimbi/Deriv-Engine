@@ -156,7 +156,8 @@ class SessionArchive:
             self._save()
         return session["id"]
 
-    def record_trade(self, session_id: Optional[str], trade: Dict[str, Any]) -> bool:
+    def record_trade_open(self, session_id: Optional[str], trade: Dict[str, Any]) -> bool:
+        """Persist the purchased contract immediately, before settlement arrives."""
         if not session_id:
             return False
         with self._lock:
@@ -172,21 +173,77 @@ class SessionArchive:
                 for item in session.get("trades", [])
             ):
                 return False
+
             saved_trade = dict(trade)
+            saved_trade["outcome"] = "OPEN"
+            saved_trade["profit"] = 0.0
             session.setdefault("trades", []).append(saved_trade)
             summary = session.setdefault("summary", {})
             stake = float(saved_trade.get("stake") or 0.0)
-            profit = float(saved_trade.get("profit") or 0.0)
-            outcome = str(saved_trade.get("outcome") or "").upper()
             summary["trade_count"] = int(summary.get("trade_count", 0)) + 1
             summary["total_stake"] = round(
                 float(summary.get("total_stake", 0.0)) + stake, 8
             )
-            summary["total_profit"] = round(
-                float(summary.get("total_profit", 0.0)) + profit, 8
-            )
             summary["max_trade_stake"] = max(
                 float(summary.get("max_trade_stake", 0.0)), stake
+            )
+            self._save()
+            return True
+
+    def record_trade(self, session_id: Optional[str], trade: Dict[str, Any]) -> bool:
+        """Attach the settlement to its opening row, or add a settled row directly."""
+        if not session_id:
+            return False
+        with self._lock:
+            session = next(
+                (item for item in self._sessions if item.get("id") == session_id),
+                None,
+            )
+            # A contract may settle after the user stops the bot. The record
+            # must remain writable until its result is received. A deleted
+            # session (manual archive clear) cannot be recreated here.
+            if session is None:
+                return False
+
+            saved_trades = session.setdefault("trades", [])
+            contract_id = trade.get("contract_id")
+            existing = next(
+                (
+                    item for item in saved_trades
+                    if contract_id is not None and item.get("contract_id") == contract_id
+                ),
+                None,
+            )
+            if existing is not None and str(existing.get("outcome") or "").upper() != "OPEN":
+                return False
+
+            saved_trade = dict(trade)
+            summary = session.setdefault("summary", {})
+            stake = float(saved_trade.get("stake") or 0.0)
+            profit = float(saved_trade.get("profit") or 0.0)
+            outcome = str(saved_trade.get("outcome") or "").upper()
+
+            if existing is None:
+                saved_trades.append(saved_trade)
+                summary["trade_count"] = int(summary.get("trade_count", 0)) + 1
+                summary["total_stake"] = round(
+                    float(summary.get("total_stake", 0.0)) + stake, 8
+                )
+                summary["max_trade_stake"] = max(
+                    float(summary.get("max_trade_stake", 0.0)), stake
+                )
+            else:
+                old_stake = float(existing.get("stake") or 0.0)
+                existing.update(saved_trade)
+                summary["total_stake"] = round(
+                    float(summary.get("total_stake", 0.0)) + stake - old_stake, 8
+                )
+                summary["max_trade_stake"] = max(
+                    float(summary.get("max_trade_stake", 0.0)), stake
+                )
+
+            summary["total_profit"] = round(
+                float(summary.get("total_profit", 0.0)) + profit, 8
             )
             if outcome == "WIN":
                 summary["wins"] = int(summary.get("wins", 0)) + 1
@@ -196,6 +253,7 @@ class SessionArchive:
                 summary["break_even"] = int(summary.get("break_even", 0)) + 1
             self._save()
             return True
+
 
     def finish_session(
         self,
