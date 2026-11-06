@@ -25,3 +25,7 @@ __pycache__/
 # Swift build directories
 swift_frontend/.build/
 swift_frontend/.build-macos/
+
+# Local persistent bot session archive
+/backend/data/session_history.json
+/backend/data/session_history.json.tmp
