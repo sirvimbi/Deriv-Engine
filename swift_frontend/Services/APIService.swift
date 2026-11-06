@@ -218,6 +218,34 @@ public class APIService {
         return res.transactions
     }
 
+    public func fetchSessionHistory() async throws -> [TradingSessionRecord] {
+        guard let url = URL(string: "\(baseURL)/api/history/sessions") else {
+            throw URLError(.badURL)
+        }
+        let (data, response) = try await URLSession.shared.data(from: url)
+        try validateHTTPResponse(response, data: data, endpoint: "session history")
+        return try decodeResponse(SessionHistoryResponse.self, from: data, endpoint: "session history").sessions
+    }
+
+    public func clearSessionHistory() async throws {
+        guard let url = URL(string: "\(baseURL)/api/history/sessions") else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateHTTPResponse(response, data: data, endpoint: "clear session history")
+    }
+
+    public func exportSessionHistoryCSV() async throws -> Data {
+        guard let url = URL(string: "\(baseURL)/api/history/sessions/export") else {
+            throw URLError(.badURL)
+        }
+        let (data, response) = try await URLSession.shared.data(from: url)
+        try validateHTTPResponse(response, data: data, endpoint: "export session history")
+        return data
+    }
+
     public func placeManualTrade(
         symbol: String,
         contractType: String,

@@ -5,7 +5,7 @@ import secrets
 import time
 from pathlib import Path
 from typing import List, Dict, Any
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Response
 from fastapi.middleware.cors import CORSMiddleware
 from models import TradingConfig, BotStatus, ManualTradeRequest, LogMessage, AccountSwitchRequest, validate_digit_barrier
 from trading_bot import TradingBot
@@ -340,6 +340,38 @@ async def place_manual_trade(req: ManualTradeRequest):
         return {"status": "success", "contract": buy_res}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Manual trade failed: {str(e)}")
+
+@app.get("/api/history/sessions")
+def get_session_history():
+    """Return durable bot-session records without touching Deriv's statement."""
+    return {"status": "success", "sessions": bot.session_archive.get_sessions()}
+
+
+@app.get("/api/history/sessions/export")
+def export_session_history():
+    """Download the complete saved session archive as a flat CSV."""
+    return Response(
+        content=bot.session_archive.export_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="deriv-session-history.csv"'},
+    )
+
+
+@app.delete("/api/history/sessions")
+def clear_session_history():
+    """Explicitly delete archived sessions; a running bot starts a fresh archive segment."""
+    bot.session_archive.clear()
+    if bot.is_running:
+        try:
+            bot.session_id = bot.session_archive.start_session(bot.config)
+        except Exception as archive_error:
+            bot.session_id = None
+            raise HTTPException(
+                status_code=500,
+                detail=f"Archive was cleared but a new active session could not be started: {archive_error}",
+            )
+    return {"status": "success", "message": "Saved session history cleared"}
+
 
 @app.get("/api/history/session")
 def get_history_session():

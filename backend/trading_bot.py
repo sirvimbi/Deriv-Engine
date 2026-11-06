@@ -8,12 +8,15 @@ from typing import Optional, List, Dict, Any, Callable
 from models import TradingConfig, BotStatus, LogMessage, validate_digit_barrier
 from deriv_client import DerivClient
 from runtime import ENGINE_BUILD
+from session_archive import SessionArchive
 
 logger = logging.getLogger("TradingBot")
 
 class TradingBot:
-    def __init__(self, config: TradingConfig):
+    def __init__(self, config: TradingConfig, session_archive: Optional[SessionArchive] = None):
         self.config = config
+        self.session_archive = session_archive or SessionArchive()
+        self.session_id: Optional[str] = None
         self.client = DerivClient(app_id=config.app_id, account_type=config.account_type)
         
         # State variables
@@ -395,6 +398,13 @@ class TradingBot:
         self.both_direction_anchor_digit = None
         self.both_generator_digit = None
         self.stop_reason = None
+        try:
+            self.session_id = self.session_archive.start_session(
+                self.config, started_at=self.session_start_epoch
+            )
+        except Exception as archive_error:
+            self.session_id = None
+            self.add_log("warn", f"SESSION ARCHIVE START FAILED | {archive_error}")
 
         self.add_log(
             "success",
@@ -423,6 +433,10 @@ class TradingBot:
             await self.client.subscribe_ticks(self.config.symbol, self._on_tick)
         except Exception as e:
             self.is_running = False
+            try:
+                self.session_archive.finish_session(self.session_id, f"Tick subscription failed: {e}")
+            except Exception as archive_error:
+                logger.warning("Unable to finalize failed session archive: %s", archive_error)
             self.add_log("error", f"Failed to subscribe to ticks: {str(e)}")
             raise e
 
@@ -567,6 +581,10 @@ class TradingBot:
         except Exception:
             pass
         self.add_log("warn", f"Bot stopped: {reason} | Total Profit: ${self.total_profit:.2f} | Runs: {self.runs}")
+        try:
+            self.session_archive.finish_session(self.session_id, reason)
+        except Exception as archive_error:
+            self.add_log("warn", f"SESSION ARCHIVE FINALIZE FAILED | {archive_error}")
         if (reason.startswith(("Take Profit limit reached", "Stop Loss limit reached")) and self.config.auto_restart_after_stop and (self._auto_restart_task is None or self._auto_restart_task.done())):
             delay_seconds = self._auto_restart_delay_seconds()
             delay_hours, remainder = divmod(delay_seconds, 3600)
@@ -881,6 +899,7 @@ class TradingBot:
         return int(self.config.win_predict_digit)
 
     async def _place_trade(self, contract_type: str):
+        entry_signal_digit = self.last_digit
         if not self.is_running:
             self.is_trade_in_progress = False
             return
@@ -1082,8 +1101,39 @@ class TradingBot:
             return
 
         contract_id = int(contract_id)
+        placed_at_epoch = time.time()
+        trade_session_id = self.session_id
         self.active_trade_contract_id = contract_id
         actual_buy_price = float(buy_res.get("buy_price", trade_stake))
+        opening_adaptive = self._adaptive_performance_snapshot()
+        try:
+            self.session_archive.record_trade_open(
+                trade_session_id,
+                {
+                    "contract_id": contract_id,
+                    "placed_at": placed_at_epoch,
+                    "settled_at": None,
+                    "contract_type": trade_contract_type,
+                    "entry_signal_digit": entry_signal_digit,
+                    "generator_digit": both_generator_digit,
+                    "barrier": trade_prediction,
+                    "stake": float(trade_stake),
+                    "buy_price": actual_buy_price,
+                    "payout": None,
+                    "profit": 0.0,
+                    "outcome": "OPEN",
+                    "deriv_status": None,
+                    "entry_spot": None,
+                    "exit_spot": None,
+                    "exit_digit": None,
+                    "active_take_profit": opening_adaptive.get("active_take_profit"),
+                    "active_stop_loss": opening_adaptive.get("active_stop_loss"),
+                    "rolling_win_rate": opening_adaptive.get("rolling_win_rate"),
+                    "sl_rolling_win_rate": opening_adaptive.get("sl_rolling_win_rate"),
+                },
+            )
+        except Exception as archive_error:
+            self.add_log("warn", f"SESSION ARCHIVE TRADE OPEN WRITE FAILED | {archive_error}")
         self.add_log(
             "info",
             f"Contract #{contract_id} placed. Type={trade_contract_type} | "
@@ -1129,7 +1179,11 @@ class TradingBot:
                     trade_contract_type=trade_contract_type,
                     trade_prediction=trade_prediction,
                     trade_stake=trade_stake,
-                    contract_id=contract_id
+                    contract_id=contract_id,
+                    placed_at_epoch=placed_at_epoch,
+                    entry_signal_digit=entry_signal_digit,
+                    generator_digit=both_generator_digit,
+                    session_id=trade_session_id
                 )
                 done_event.set()
 
@@ -1345,13 +1399,67 @@ class TradingBot:
         trade_contract_type: str,
         trade_prediction: Optional[int],
         trade_stake: float,
-        contract_id: int
+        contract_id: int,
+        placed_at_epoch: Optional[float] = None,
+        entry_signal_digit: Optional[int] = None,
+        generator_digit: Optional[int] = None,
+        session_id: Optional[str] = None,
     ):
         if contract_id != self.active_trade_contract_id:
+            # A contract from a previous session can settle after the bot has
+            # been restarted and a newer contract has become active. Do not
+            # apply that result to the new session's recovery/profit state, but
+            # still finalize the archived trade against its original session.
+            try:
+                stale_profit = float(poc.get("profit") or 0.0)
+                stale_status = str(poc.get("status") or "").lower()
+                stale_buy_price_raw = poc.get("buy_price")
+                try:
+                    stale_buy_price = float(stale_buy_price_raw)
+                except (TypeError, ValueError):
+                    stale_buy_price = float(trade_stake)
+                stale_exit_spot = poc.get("exit_spot")
+                stale_entry_spot = poc.get("entry_spot")
+                stale_exit_digit = self._extract_last_digit_from_spot(
+                    stale_exit_spot, self.last_tick_pip_size
+                )
+                stale_outcome = (
+                    "WIN" if stale_profit > 0.005
+                    else ("LOSS" if stale_profit < -0.005 else "BREAK_EVEN")
+                )
+                self.session_archive.record_trade(
+                    session_id,
+                    {
+                        "contract_id": contract_id,
+                        "placed_at": float(placed_at_epoch or time.time()),
+                        "settled_at": time.time(),
+                        "contract_type": trade_contract_type,
+                        "entry_signal_digit": entry_signal_digit,
+                        "generator_digit": generator_digit,
+                        "barrier": trade_prediction,
+                        "stake": float(trade_stake),
+                        "buy_price": stale_buy_price,
+                        "payout": (
+                            float(poc.get("payout"))
+                            if poc.get("payout") is not None else None
+                        ),
+                        "profit": stale_profit,
+                        "outcome": stale_outcome,
+                        "deriv_status": stale_status or None,
+                        "entry_spot": str(stale_entry_spot) if stale_entry_spot is not None else None,
+                        "exit_spot": str(stale_exit_spot) if stale_exit_spot is not None else None,
+                        "exit_digit": stale_exit_digit,
+                    },
+                )
+            except Exception as archive_error:
+                self.add_log(
+                    "warn",
+                    f"STALE SESSION ARCHIVE SETTLEMENT WRITE FAILED | id={contract_id} | {archive_error}"
+                )
             self.add_log(
                 "warn",
-                f"Ignoring stale settlement for contract #{contract_id}; "
-                f"active contract is #{self.active_trade_contract_id}."
+                f"Ignoring stale settlement for live trading state, but archived contract "
+                f"#{contract_id} against its original session."
             )
             return
 
@@ -1431,6 +1539,41 @@ class TradingBot:
         self.total_profit += profit
         self.runs += 1
         self._record_adaptive_outcome(profit)
+        adaptive_snapshot = self._adaptive_performance_snapshot()
+        outcome_label = (
+            "WIN" if profit > 0.005 else ("LOSS" if profit < -0.005 else "BREAK_EVEN")
+        )
+        try:
+            self.session_archive.record_trade(
+                session_id or self.session_id,
+                {
+                    "contract_id": contract_id,
+                    "placed_at": float(placed_at_epoch or time.time()),
+                    "settled_at": time.time(),
+                    "contract_type": trade_contract_type,
+                    "entry_signal_digit": entry_signal_digit,
+                    "generator_digit": generator_digit,
+                    "barrier": trade_prediction,
+                    "stake": float(trade_stake),
+                    "buy_price": float(settlement_buy_price),
+                    "payout": (
+                        float(poc.get("payout"))
+                        if poc.get("payout") is not None else None
+                    ),
+                    "profit": profit,
+                    "outcome": outcome_label,
+                    "deriv_status": status or None,
+                    "entry_spot": str(entry_spot) if entry_spot is not None else None,
+                    "exit_spot": str(exit_spot) if exit_spot is not None else None,
+                    "exit_digit": exit_digit,
+                    "active_take_profit": adaptive_snapshot.get("active_take_profit"),
+                    "active_stop_loss": adaptive_snapshot.get("active_stop_loss"),
+                    "rolling_win_rate": adaptive_snapshot.get("rolling_win_rate"),
+                    "sl_rolling_win_rate": adaptive_snapshot.get("sl_rolling_win_rate"),
+                },
+            )
+        except Exception as archive_error:
+            self.add_log("warn", f"SESSION ARCHIVE TRADE WRITE FAILED | {archive_error}")
 
         # Every settled recovery execution consumes one Martingale execution slot.
         # Losses re-arm the configured target in the loss branch below.
