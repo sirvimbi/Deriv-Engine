@@ -361,7 +361,7 @@ public struct HistoryView: View {
                     .foregroundColor(trade.outcome == "WIN" ? Theme.profit : (trade.outcome == "LOSS" ? Theme.loss : .secondary))
             }
             HStack(spacing: 8) {
-                Text(dateText(trade.placed_at) + " → " + dateText(trade.settled_at))
+                Text(dateText(trade.placed_at) + " → " + (trade.settled_at.map(dateText) ?? "Open"))
                 Text("Stake $\(money(trade.stake))")
                 Text("Buy $\(money(trade.buy_price))")
                 if let payout = trade.payout { Text("Payout $\(money(payout))") }
