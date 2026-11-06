@@ -25,13 +25,13 @@ class DerivTransientServiceError(RuntimeError):
 
 
 class DerivClient:
+    """Deriv WebSocket client using the current REST OTP authentication flow."""
+
     REST_RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
     REST_REQUEST_MAX_ATTEMPTS = 5
     REST_RETRY_BASE_DELAY_SECONDS = 1.0
     REST_RETRY_MAX_DELAY_SECONDS = 12.0
     REST_RETRY_AFTER_MAX_SECONDS = 30.0
-
-    """Deriv WebSocket client using the current REST OTP authentication flow."""
 
     REST_BASE_URL = "https://api.derivws.com"
     PUBLIC_WS_URL = "wss://api.derivws.com/trading/v1/options/ws/public"
