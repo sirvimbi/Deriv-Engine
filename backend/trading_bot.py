@@ -1406,10 +1406,60 @@ class TradingBot:
         session_id: Optional[str] = None,
     ):
         if contract_id != self.active_trade_contract_id:
+            # A contract from a previous session can settle after the bot has
+            # been restarted and a newer contract has become active. Do not
+            # apply that result to the new session's recovery/profit state, but
+            # still finalize the archived trade against its original session.
+            try:
+                stale_profit = float(poc.get("profit") or 0.0)
+                stale_status = str(poc.get("status") or "").lower()
+                stale_buy_price_raw = poc.get("buy_price")
+                try:
+                    stale_buy_price = float(stale_buy_price_raw)
+                except (TypeError, ValueError):
+                    stale_buy_price = float(trade_stake)
+                stale_exit_spot = poc.get("exit_spot")
+                stale_entry_spot = poc.get("entry_spot")
+                stale_exit_digit = self._extract_last_digit_from_spot(
+                    stale_exit_spot, self.last_tick_pip_size
+                )
+                stale_outcome = (
+                    "WIN" if stale_profit > 0.005
+                    else ("LOSS" if stale_profit < -0.005 else "BREAK_EVEN")
+                )
+                self.session_archive.record_trade(
+                    session_id,
+                    {
+                        "contract_id": contract_id,
+                        "placed_at": float(placed_at_epoch or time.time()),
+                        "settled_at": time.time(),
+                        "contract_type": trade_contract_type,
+                        "entry_signal_digit": entry_signal_digit,
+                        "generator_digit": generator_digit,
+                        "barrier": trade_prediction,
+                        "stake": float(trade_stake),
+                        "buy_price": stale_buy_price,
+                        "payout": (
+                            float(poc.get("payout"))
+                            if poc.get("payout") is not None else None
+                        ),
+                        "profit": stale_profit,
+                        "outcome": stale_outcome,
+                        "deriv_status": stale_status or None,
+                        "entry_spot": str(stale_entry_spot) if stale_entry_spot is not None else None,
+                        "exit_spot": str(stale_exit_spot) if stale_exit_spot is not None else None,
+                        "exit_digit": stale_exit_digit,
+                    },
+                )
+            except Exception as archive_error:
+                self.add_log(
+                    "warn",
+                    f"STALE SESSION ARCHIVE SETTLEMENT WRITE FAILED | id={contract_id} | {archive_error}"
+                )
             self.add_log(
                 "warn",
-                f"Ignoring stale settlement for contract #{contract_id}; "
-                f"active contract is #{self.active_trade_contract_id}."
+                f"Ignoring stale settlement for live trading state, but archived contract "
+                f"#{contract_id} against its original session."
             )
             return
 
