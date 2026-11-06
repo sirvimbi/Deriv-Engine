@@ -3,17 +3,35 @@ import json
 import logging
 import re
 import ssl
+import time
 import certifi
 import requests
 import websockets
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from decimal import Decimal, ROUND_HALF_UP, ROUND_UP, ROUND_DOWN
 from typing import Optional, Dict, Any, Callable
 from websockets.protocol import State
 
 logger = logging.getLogger("DerivClient")
 
+
+class DerivTransientServiceError(RuntimeError):
+    """A retryable Deriv REST/network failure, not an invalid-token response."""
+
+    def __init__(self, message: str, status_code: Optional[int] = None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
 class DerivClient:
     """Deriv WebSocket client using the current REST OTP authentication flow."""
+
+    REST_RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
+    REST_REQUEST_MAX_ATTEMPTS = 5
+    REST_RETRY_BASE_DELAY_SECONDS = 1.0
+    REST_RETRY_MAX_DELAY_SECONDS = 12.0
+    REST_RETRY_AFTER_MAX_SECONDS = 30.0
 
     REST_BASE_URL = "https://api.derivws.com"
     PUBLIC_WS_URL = "wss://api.derivws.com/trading/v1/options/ws/public"
@@ -60,46 +78,145 @@ class DerivClient:
             headers["Deriv-App-ID"] = self.app_id
         return headers
 
-    def _request_json(self, method: str, path: str, token: str) -> Dict[str, Any]:
-        url = f"{self.REST_BASE_URL}{path}"
-        response = requests.request(
-            method,
-            url,
-            headers=self._headers(token),
-            timeout=15
-        )
-        try:
-            data = response.json()
-        except ValueError:
-            data = {}
-
-        if response.status_code >= 400:
-            errors = data.get("errors") or []
-            error = errors[0] if errors and isinstance(errors[0], dict) else {}
-            message = error.get("message") or response.text.strip() or f"HTTP {response.status_code}"
-            code = error.get("code")
-
-            if response.status_code == 401:
-                if code in {"Unauthorized", "InvalidToken", "AuthenticationError"} or "token" in message.lower():
-                    raise RuntimeError(
-                        "Deriv rejected the authorization token (401). "
-                        "Generate a new Personal Access Token for this Deriv App in the Developer Dashboard "
-                        "with the trade scope, then replace the token in Settings. "
-                        "Do not use a legacy API token or an expired OAuth access token."
+    @classmethod
+    def _rest_retry_delay(cls, response: Any, attempt: int) -> float:
+        """Respect Retry-After where supplied, otherwise use bounded exponential backoff."""
+        headers = getattr(response, "headers", {}) or {}
+        retry_after = headers.get("Retry-After") if hasattr(headers, "get") else None
+        if retry_after is not None:
+            try:
+                return min(
+                    cls.REST_RETRY_AFTER_MAX_SECONDS,
+                    max(0.0, float(retry_after)),
+                )
+            except (TypeError, ValueError):
+                try:
+                    retry_at = parsedate_to_datetime(str(retry_after))
+                    if retry_at.tzinfo is None:
+                        retry_at = retry_at.replace(tzinfo=timezone.utc)
+                    return min(
+                        cls.REST_RETRY_AFTER_MAX_SECONDS,
+                        max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds()),
                     )
+                except (TypeError, ValueError, OverflowError):
+                    pass
+
+        return min(
+            cls.REST_RETRY_MAX_DELAY_SECONDS,
+            cls.REST_RETRY_BASE_DELAY_SECONDS * (2 ** max(0, attempt - 1)),
+        )
+
+    def _request_json(self, method: str, path: str, token: str) -> Dict[str, Any]:
+        """Make a REST request, retrying temporary 429/5xx and network failures.
+
+        Authentication failures (401/403) are deliberately not retried: these
+        indicate token/scope configuration problems, not a transient outage.
+        """
+        url = f"{self.REST_BASE_URL}{path}"
+        last_transient_error: Optional[BaseException] = None
+
+        for attempt in range(1, self.REST_REQUEST_MAX_ATTEMPTS + 1):
+            try:
+                response = requests.request(
+                    method,
+                    url,
+                    headers=self._headers(token),
+                    timeout=15,
+                )
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+                last_transient_error = exc
+                if attempt >= self.REST_REQUEST_MAX_ATTEMPTS:
+                    raise DerivTransientServiceError(
+                        f"Deriv REST request failed after {attempt} attempts due to a temporary network error: {exc}"
+                    ) from exc
+
+                delay = min(
+                    self.REST_RETRY_MAX_DELAY_SECONDS,
+                    self.REST_RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1)),
+                )
+                logger.warning(
+                    "Temporary Deriv REST network failure for %s %s "
+                    "(attempt %d/%d): %s. Retrying in %.1fs.",
+                    method,
+                    path,
+                    attempt,
+                    self.REST_REQUEST_MAX_ATTEMPTS,
+                    exc,
+                    delay,
+                )
+                time.sleep(delay)
+                continue
+
+            try:
+                data = response.json()
+            except ValueError:
+                data = {}
+            if not isinstance(data, dict):
+                data = {}
+
+            if response.status_code >= 400:
+                errors = data.get("errors") or []
+                error = errors[0] if errors and isinstance(errors[0], dict) else {}
+                message = (
+                    error.get("message")
+                    or response.text.strip()
+                    or f"HTTP {response.status_code}"
+                )
+                code = error.get("code")
+
+                if response.status_code == 401:
+                    if code in {"Unauthorized", "InvalidToken", "AuthenticationError"} or "token" in message.lower():
+                        raise RuntimeError(
+                            "Deriv rejected the authorization token (401). "
+                            "Generate a new Personal Access Token for this Deriv App in the Developer Dashboard "
+                            "with the trade scope, then replace the token in Settings. "
+                            "Do not use a legacy API token or an expired OAuth access token."
+                        )
+                    raise RuntimeError(f"Deriv rejected authentication (401): {message}")
+
+                if response.status_code == 403:
+                    raise RuntimeError(
+                        "Deriv accepted the token but denied access (403). "
+                        "Ensure the token has the trade scope and belongs to the selected Deriv App."
+                    )
+
+                if response.status_code in self.REST_RETRYABLE_STATUS_CODES:
+                    last_transient_error = RuntimeError(
+                        f"HTTP {response.status_code}: {message}"
+                    )
+                    if attempt >= self.REST_REQUEST_MAX_ATTEMPTS:
+                        raise DerivTransientServiceError(
+                            f"Deriv REST request failed ({response.status_code}) after "
+                            f"{attempt} attempts: {message}",
+                            status_code=response.status_code,
+                        ) from last_transient_error
+
+                    delay = self._rest_retry_delay(response, attempt)
+                    logger.warning(
+                        "Deriv REST %s %s returned HTTP %s "
+                        "(attempt %d/%d): %s. Retrying in %.1fs.",
+                        method,
+                        path,
+                        response.status_code,
+                        attempt,
+                        self.REST_REQUEST_MAX_ATTEMPTS,
+                        message,
+                        delay,
+                    )
+                    time.sleep(delay)
+                    continue
+
                 raise RuntimeError(
-                    f"Deriv rejected authentication (401): {message}"
+                    f"Deriv REST request failed ({response.status_code}): {message}"
                 )
 
-            if response.status_code == 403:
-                raise RuntimeError(
-                    "Deriv accepted the token but denied access (403). "
-                    "Ensure the token has the trade scope and belongs to the selected Deriv App."
-                )
+            return data
 
-            raise RuntimeError(f"Deriv REST request failed ({response.status_code}): {message}")
-
-        return data
+        # Defensive fallback: the loop either returns a response or raises.
+        raise DerivTransientServiceError(
+            f"Deriv REST request failed after {self.REST_REQUEST_MAX_ATTEMPTS} attempts: "
+            f"{last_transient_error or 'unknown temporary failure'}"
+        )
 
     async def _get_authenticated_ws_url(self, token: str) -> Dict[str, Any]:
         normalized_token = self._normalize_token(token)
