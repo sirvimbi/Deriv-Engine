@@ -6,7 +6,7 @@ from decimal import Decimal
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Callable
 from models import TradingConfig, BotStatus, LogMessage, validate_digit_barrier
-from deriv_client import DerivClient
+from deriv_client import DerivClient, DerivTransientServiceError
 from runtime import ENGINE_BUILD
 from session_archive import SessionArchive
 
@@ -603,20 +603,48 @@ class TradingBot:
                 pass
 
     async def _restart_after_stop(self, delay_seconds: int):
-        """Restart once after the configured TP/SL delay when auto-restart is enabled."""
+        """Restart after TP/SL and keep retrying temporary Deriv outages safely."""
         try:
             delay_seconds = max(0, int(delay_seconds))
             await asyncio.sleep(delay_seconds)
             if self.is_running or not self.config.auto_restart_after_stop:
                 return
+
             delay_hours, remainder = divmod(delay_seconds, 3600)
             delay_minutes = remainder // 60
             delay_label = f"{delay_hours:02d}:{delay_minutes:02d}"
-            self.add_log(
-                "info",
-                f"AUTO-RESTART | {delay_label} delay complete. Restarting bot."
-            )
-            await self.start()
+            retry_delay = 15
+            attempt = 0
+
+            while self.config.auto_restart_after_stop and not self.is_running:
+                attempt += 1
+                self.add_log(
+                    "info",
+                    f"AUTO-RESTART | {delay_label} configured delay complete. "
+                    f"Attempt {attempt}: reconnecting to Deriv."
+                )
+                try:
+                    await self.start()
+                    self.add_log("success", "AUTO-RESTART SUCCESS | Deriv connection restored and bot restarted.")
+                    return
+                except asyncio.CancelledError:
+                    raise
+                except DerivTransientServiceError as exc:
+                    # A 429/5xx or REST network outage is not an invalid token.
+                    # Keep the restart armed with a capped backoff while the
+                    # setting remains enabled; manual start can also recover it.
+                    self.add_log(
+                        "warn",
+                        f"AUTO-RESTART DEFERRED | Temporary Deriv service failure: {exc}. "
+                        f"Retrying in {retry_delay}s; auto-restart remains armed."
+                    )
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(300, retry_delay * 2)
+                except Exception as exc:
+                    # Invalid-token, scope, App ID, or other permanent errors
+                    # should not trigger an endless automatic retry loop.
+                    self.add_log("error", f"AUTO-RESTART FAILED | {exc}")
+                    return
         except asyncio.CancelledError:
             raise
         except Exception as exc:
