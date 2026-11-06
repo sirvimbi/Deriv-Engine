@@ -1102,8 +1102,38 @@ class TradingBot:
 
         contract_id = int(contract_id)
         placed_at_epoch = time.time()
+        trade_session_id = self.session_id
         self.active_trade_contract_id = contract_id
         actual_buy_price = float(buy_res.get("buy_price", trade_stake))
+        opening_adaptive = self._adaptive_performance_snapshot()
+        try:
+            self.session_archive.record_trade_open(
+                trade_session_id,
+                {
+                    "contract_id": contract_id,
+                    "placed_at": placed_at_epoch,
+                    "settled_at": None,
+                    "contract_type": trade_contract_type,
+                    "entry_signal_digit": entry_signal_digit,
+                    "generator_digit": both_generator_digit,
+                    "barrier": trade_prediction,
+                    "stake": float(trade_stake),
+                    "buy_price": actual_buy_price,
+                    "payout": None,
+                    "profit": 0.0,
+                    "outcome": "OPEN",
+                    "deriv_status": None,
+                    "entry_spot": None,
+                    "exit_spot": None,
+                    "exit_digit": None,
+                    "active_take_profit": opening_adaptive.get("active_take_profit"),
+                    "active_stop_loss": opening_adaptive.get("active_stop_loss"),
+                    "rolling_win_rate": opening_adaptive.get("rolling_win_rate"),
+                    "sl_rolling_win_rate": opening_adaptive.get("sl_rolling_win_rate"),
+                },
+            )
+        except Exception as archive_error:
+            self.add_log("warn", f"SESSION ARCHIVE TRADE OPEN WRITE FAILED | {archive_error}")
         self.add_log(
             "info",
             f"Contract #{contract_id} placed. Type={trade_contract_type} | "
@@ -1152,7 +1182,8 @@ class TradingBot:
                     contract_id=contract_id,
                     placed_at_epoch=placed_at_epoch,
                     entry_signal_digit=entry_signal_digit,
-                    generator_digit=both_generator_digit
+                    generator_digit=both_generator_digit,
+                    session_id=trade_session_id
                 )
                 done_event.set()
 
@@ -1372,6 +1403,7 @@ class TradingBot:
         placed_at_epoch: Optional[float] = None,
         entry_signal_digit: Optional[int] = None,
         generator_digit: Optional[int] = None,
+        session_id: Optional[str] = None,
     ):
         if contract_id != self.active_trade_contract_id:
             self.add_log(
@@ -1463,7 +1495,7 @@ class TradingBot:
         )
         try:
             self.session_archive.record_trade(
-                self.session_id,
+                session_id or self.session_id,
                 {
                     "contract_id": contract_id,
                     "placed_at": float(placed_at_epoch or time.time()),
