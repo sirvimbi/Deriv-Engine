@@ -85,6 +85,10 @@ class SessionArchiveTests(unittest.TestCase):
             "buy_price": 6.0,
             "profit": 0.0,
             "outcome": "OPEN",
+            "active_take_profit": 80.0,
+            "active_stop_loss": 40.0,
+            "rolling_win_rate": 60.0,
+            "sl_rolling_win_rate": 55.0,
         }))
         open_session = self.archive.get_sessions()[0]
         self.assertEqual(open_session["summary"]["trade_count"], 1)
@@ -105,6 +109,10 @@ class SessionArchiveTests(unittest.TestCase):
             "payout": 11.4,
             "profit": 5.4,
             "outcome": "WIN",
+            "active_take_profit": 100.0,
+            "active_stop_loss": 80.0,
+            "rolling_win_rate": 66.0,
+            "sl_rolling_win_rate": 70.0,
             "deriv_status": "won",
             "exit_digit": 8,
         }))
@@ -115,6 +123,12 @@ class SessionArchiveTests(unittest.TestCase):
         self.assertAlmostEqual(settled_session["summary"]["total_stake"], 6.0)
         self.assertAlmostEqual(settled_session["summary"]["total_profit"], 5.4)
         self.assertEqual(settled_session["trades"][0]["outcome"], "WIN")
+        # Archived adaptive fields describe the settings used when this
+        # contract was opened, not the new rates after its result was added.
+        self.assertEqual(settled_session["trades"][0]["active_take_profit"], 80.0)
+        self.assertEqual(settled_session["trades"][0]["active_stop_loss"], 40.0)
+        self.assertEqual(settled_session["trades"][0]["rolling_win_rate"], 60.0)
+        self.assertEqual(settled_session["trades"][0]["sl_rolling_win_rate"], 55.0)
         self.assertFalse(self.archive.record_trade(session_id, {
             "contract_id": 789, "stake": 6.0, "profit": 5.4, "outcome": "WIN"
         }))
