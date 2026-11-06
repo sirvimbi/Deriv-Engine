@@ -106,6 +106,26 @@ class DerivClient:
             cls.REST_RETRY_BASE_DELAY_SECONDS * (2 ** max(0, attempt - 1)),
         )
 
+    def _probe_public_api_health(self) -> str:
+        """Check Deriv's unauthenticated health endpoint after an account API 503.
+
+        This is diagnostic only. A healthy public gateway does not guarantee
+        that the authenticated Options account service is healthy.
+        """
+        health_url = f"{self.REST_BASE_URL}/v1/health"
+        try:
+            response = requests.get(health_url, timeout=5)
+            body = (getattr(response, "text", "") or "").strip()
+            if response.status_code == 200:
+                return (
+                    "Public Deriv API health check returned HTTP 200; "
+                    "the authenticated Options accounts service may still be degraded."
+                )
+            detail = body[:180] if body else "no response body"
+            return f"Public Deriv API health check returned HTTP {response.status_code}: {detail}"
+        except requests.exceptions.RequestException as exc:
+            return f"Public Deriv API health check could not complete: {exc}"
+
     def _request_json(self, method: str, path: str, token: str) -> Dict[str, Any]:
         """Make a REST request, retrying temporary 429/5xx and network failures.
 
@@ -185,13 +205,21 @@ class DerivClient:
                         f"HTTP {response.status_code}: {message}"
                     )
                     if attempt >= self.REST_REQUEST_MAX_ATTEMPTS:
+                        diagnostic = ""
+                        if response.status_code == 503 and path == "/trading/v1/options/accounts":
+                            diagnostic = " | " + self._probe_public_api_health()
                         raise DerivTransientServiceError(
                             f"Deriv REST request failed ({response.status_code}) after "
-                            f"{attempt} attempts: {message}",
+                            f"{attempt} attempts: {message}{diagnostic}",
                             status_code=response.status_code,
                         ) from last_transient_error
 
                     delay = self._rest_retry_delay(response, attempt)
+                    if response.status_code == 503:
+                        # Some 503 responses include a 1-second Retry-After.
+                        # Health-probe failures need a little room to recover;
+                        # never hammer this endpoint faster than every 10s.
+                        delay = max(10.0, delay)
                     logger.warning(
                         "Deriv REST %s %s returned HTTP %s "
                         "(attempt %d/%d): %s. Retrying in %.1fs.",

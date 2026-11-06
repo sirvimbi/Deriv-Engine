@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Resp
 from fastapi.middleware.cors import CORSMiddleware
 from models import TradingConfig, BotStatus, ManualTradeRequest, LogMessage, AccountSwitchRequest, validate_digit_barrier
 from trading_bot import TradingBot
-from deriv_client import DerivClient
+from deriv_client import DerivClient, DerivTransientServiceError
 from runtime import ENGINE_BUILD, ENGINE_DESCRIPTION
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -246,6 +246,12 @@ async def start_bot():
         await broadcast_ws_event("history_reset", {})
         await bot.start()
         return {"status": "started", "message": "Bot started successfully"}
+    except DerivTransientServiceError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=str(e),
+            headers={"Retry-After": "15"},
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -408,40 +414,41 @@ async def get_profit_table(limit: int = 50, token: str = None):
 
 @app.get("/api/account/balance")
 async def get_account_balance(token: str = None):
-    """Return the current account balance and synchronize the bot/dashboard state.
+    """Return the balance from the bot's existing authenticated connection.
 
-    Prefer the bot's already-authenticated Deriv socket. This avoids creating
-    another OTP session for every dashboard refresh and keeps the displayed
-    equity on the same authenticated account used for trading.
+    Dashboard equity refresh runs every few seconds. It must never initiate a
+    new REST authorization/OTP flow when the bot is disconnected: doing so
+    creates repeated login attempts while Deriv is unavailable and competes
+    with the explicit Start operation.
     """
-    api_token = token or bot.config.api_token
-    try:
-        if bot.client.authorized:
-            active_type = str(bot.client.account_info.get("account_type", "")).lower()
-            configured_type = str(bot.config.account_type).lower()
-            if active_type and active_type != configured_type:
-                bot.account_balance = None
-                bot.account_equity = None
-                raise RuntimeError(
-                    f"Authenticated Deriv account mismatch: active={active_type}, configured={configured_type}. Re-authentication is required before displaying or trading on this account."
-                )
+    if not bot.client.authorized:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Deriv account is not currently authenticated. Start the bot to establish "
+                "the account connection; background balance refresh will not initiate "
+                "another authorization attempt."
+            ),
+            headers={"Retry-After": "15"},
+        )
 
-            # Balance subscription is the live source of truth. Return the
-            # cached value instead of consuming the balance quota on every UI
-            # refresh. Only request balance when no subscription value exists.
-            if bot.account_balance is None:
-                balance = await bot.client.get_balance()
-                await bot._on_balance(balance)
-            else:
-                balance = {"balance": bot.account_balance, "currency": bot.config.currency}
+    try:
+        active_type = str(bot.client.account_info.get("account_type", "")).lower()
+        configured_type = str(bot.config.account_type).lower()
+        if active_type and active_type != configured_type:
+            bot.account_balance = None
+            bot.account_equity = None
+            raise RuntimeError(
+                f"Authenticated Deriv account mismatch: active={active_type}, configured={configured_type}. Re-authentication is required before displaying or trading on this account."
+            )
+
+        # Balance subscription is the live source of truth. Return the cached
+        # value instead of consuming the balance quota on every UI refresh.
+        if bot.account_balance is None:
+            balance = await bot.client.get_balance()
+            await bot._on_balance(balance)
         else:
-            if not api_token:
-                raise RuntimeError("Deriv API token is not configured.")
-            await bot.client.authorize(api_token)
-            subscription_response = await bot.client.subscribe_balance(bot._on_balance)
-            balance = subscription_response.get("balance") or {}
-            if balance.get("balance") is not None:
-                await bot._on_balance(balance)
+            balance = {"balance": bot.account_balance, "currency": bot.config.currency}
 
         return {
             "status": "success",
@@ -449,6 +456,14 @@ async def get_account_balance(token: str = None):
             "equity": bot.account_equity,
             "currency": balance.get("currency", bot.config.currency)
         }
+    except HTTPException:
+        raise
+    except DerivTransientServiceError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=str(e),
+            headers={"Retry-After": "15"},
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

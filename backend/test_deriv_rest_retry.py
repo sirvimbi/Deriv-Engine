@@ -1,11 +1,14 @@
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
+from fastapi import HTTPException
+
 import requests
 
 from deriv_client import DerivClient, DerivTransientServiceError
 from models import TradingConfig
 from trading_bot import TradingBot
+import main
 
 
 class FakeResponse:
@@ -41,7 +44,7 @@ class DerivRestRetryTests(unittest.TestCase):
 
         self.assertEqual(result["data"][0]["account_id"], "CR123")
         self.assertEqual(request.call_count, 2)
-        sleep.assert_called_once_with(1.0)
+        sleep.assert_called_once_with(10.0)
 
     @patch("deriv_client.time.sleep")
     @patch("deriv_client.requests.request")
@@ -53,22 +56,26 @@ class DerivRestRetryTests(unittest.TestCase):
 
         self.client._request_json("GET", "/health", "test-token")
 
-        sleep.assert_called_once_with(3.0)
+        sleep.assert_called_once_with(10.0)
 
     @patch("deriv_client.time.sleep")
+    @patch("deriv_client.requests.get")
     @patch("deriv_client.requests.request")
-    def test_persistent_503_raises_transient_error_after_bounded_attempts(self, request, sleep):
+    def test_persistent_503_reports_public_health_probe_after_bounded_attempts(self, request, health_get, sleep):
         request.return_value = FakeResponse(
             503,
             {"errors": [{"message": "A health probe is in progress."}]},
         )
+        health_get.return_value = FakeResponse(200, text="OK")
 
         with self.assertRaises(DerivTransientServiceError) as raised:
             self.client._request_json("GET", "/trading/v1/options/accounts", "test-token")
 
         self.assertEqual(raised.exception.status_code, 503)
         self.assertIn("after 5 attempts", str(raised.exception))
+        self.assertIn("Public Deriv API health check returned HTTP 200", str(raised.exception))
         self.assertEqual(request.call_count, 5)
+        self.assertEqual(health_get.call_count, 1)
         self.assertEqual(sleep.call_count, 4)
 
     @patch("deriv_client.time.sleep")
@@ -99,6 +106,20 @@ class DerivRestRetryTests(unittest.TestCase):
         )
         self.assertEqual(request.call_count, 2)
         sleep.assert_called_once_with(1.0)
+
+
+class BalanceEndpointAuthGuardTests(unittest.IsolatedAsyncioTestCase):
+    async def test_background_balance_refresh_does_not_start_authentication(self):
+        with patch.object(main, "bot") as bot_mock:
+            bot_mock.client.authorized = False
+            bot_mock.client.authorize = AsyncMock()
+
+            with self.assertRaises(HTTPException) as raised:
+                await main.get_account_balance()
+
+            self.assertEqual(raised.exception.status_code, 503)
+            self.assertIn("background balance refresh will not initiate", raised.exception.detail)
+            bot_mock.client.authorize.assert_not_awaited()
 
 
 class AutoRestartRetryTests(unittest.IsolatedAsyncioTestCase):
