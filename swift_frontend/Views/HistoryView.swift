@@ -213,7 +213,7 @@ public struct HistoryView: View {
             Spacer()
             ProgressView("Loading saved sessions…")
             Spacer()
-        } else if let err = viewModel.errorMessage, viewModel.archivedSessions.isEmpty {
+        } else if viewModel.archivedSessions.isEmpty, let err = viewModel.errorMessage {
             Spacer()
             ErrorBanner(err) { viewModel.loadHistory(force: true) }
                 .padding(.horizontal)
@@ -234,6 +234,9 @@ public struct HistoryView: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: 10) {
+                    if let err = viewModel.errorMessage {
+                        ErrorBanner(err) { viewModel.loadHistory(force: true) }
+                    }
                     ForEach(viewModel.archivedSessions) { session in
                         sessionCard(session)
                     }
@@ -360,6 +363,8 @@ public struct HistoryView: View {
             HStack(spacing: 8) {
                 Text(dateText(trade.placed_at) + " → " + dateText(trade.settled_at))
                 Text("Stake $\(money(trade.stake))")
+                Text("Buy $\(money(trade.buy_price))")
+                if let payout = trade.payout { Text("Payout $\(money(payout))") }
                 Text(trade.outcome)
                     .fontWeight(.bold)
             }
@@ -369,9 +374,18 @@ public struct HistoryView: View {
                 if let digit = trade.entry_signal_digit { Text("Entry digit \(digit)") }
                 if let digit = trade.generator_digit { Text("Generator \(digit)") }
                 if let digit = trade.exit_digit { Text("Exit digit \(digit)") }
+                if let spot = trade.entry_spot { Text("Entry \(spot)") }
                 if let spot = trade.exit_spot { Text("Exit \(spot)") }
             }
             .font(.system(size: 9, design: .monospaced))
+            .foregroundColor(.secondary)
+            HStack(spacing: 8) {
+                if let activeTP = trade.active_take_profit { Text("Active TP $\(money(activeTP))") }
+                if let activeSL = trade.active_stop_loss { Text("Active SL $\(money(activeSL))") }
+                if let rate = trade.rolling_win_rate { Text("TP WR \(rate, specifier: "%.1f")%") }
+                if let rate = trade.sl_rolling_win_rate { Text("SL WR \(rate, specifier: "%.1f")%") }
+            }
+            .font(.system(size: 9))
             .foregroundColor(.secondary)
         }
         .padding(9)
