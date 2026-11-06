@@ -1,10 +1,13 @@
+import asyncio
 import csv
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from models import TradingConfig
 from session_archive import SessionArchive
+from trading_bot import TradingBot
 
 
 class SessionArchiveTests(unittest.TestCase):
@@ -157,6 +160,60 @@ class SessionArchiveTests(unittest.TestCase):
         self.assertEqual(rows[0]["trade_contract_type"], "DIGITUNDER")
         self.assertEqual(rows[0]["trade_outcome"], "LOSS")
         self.assertEqual(rows[0]["trade_exit_digit"], "7")
+
+    def test_late_settlement_after_restart_updates_original_session_only(self):
+        session_id = self.archive.start_session(self.config, started_at=1000)
+        self.archive.record_trade_open(session_id, {
+            "contract_id": 123,
+            "placed_at": 1001,
+            "settled_at": None,
+            "contract_type": "DIGITOVER",
+            "barrier": 4,
+            "stake": 5.0,
+            "buy_price": 5.0,
+            "profit": 0.0,
+            "outcome": "OPEN",
+            "active_take_profit": 80.0,
+            "active_stop_loss": 40.0,
+            "rolling_win_rate": 60.0,
+            "sl_rolling_win_rate": 55.0,
+        })
+
+        bot = TradingBot(TradingConfig(), session_archive=self.archive)
+        # Simulate a new session having already placed another contract.
+        bot.active_trade_contract_id = 456
+        bot.total_profit = 17.0
+        bot.runs = 4
+
+        asyncio.run(bot._handle_contract_finished(
+            {
+                "profit": 4.5,
+                "status": "won",
+                "buy_price": 5.0,
+                "payout": 9.5,
+                "entry_spot": "101.24",
+                "exit_spot": "101.25",
+            },
+            trade_contract_type="DIGITOVER",
+            trade_prediction=4,
+            trade_stake=5.0,
+            contract_id=123,
+            placed_at_epoch=1001,
+            entry_signal_digit=8,
+            generator_digit=2,
+            session_id=session_id,
+        ))
+
+        archived = self.archive.get_sessions()[0]
+        trade = archived["trades"][0]
+        self.assertEqual(trade["outcome"], "WIN")
+        self.assertAlmostEqual(trade["profit"], 4.5)
+        self.assertEqual(trade["exit_digit"], 5)
+        self.assertEqual(trade["active_take_profit"], 80.0)
+        self.assertEqual(trade["active_stop_loss"], 40.0)
+        # Stale results are archived, but must not change the new bot session.
+        self.assertEqual(bot.total_profit, 17.0)
+        self.assertEqual(bot.runs, 4)
 
     def test_clear_removes_archived_sessions(self):
         self.archive.start_session(self.config, started_at=1000)
